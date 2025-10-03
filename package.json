@@ -1,0 +1,48 @@
+{
+    "name": "iptu2",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "preview": "vite preview",
+        "lint": "eslint \"src/**/*.{ts,tsx}\"",
+        "format": "prettier --write .",
+        "healthcheck": "node scripts/healthcheck.mjs",
+        "prepare": "husky install"
+    },
+    "dependencies": {
+        "bootstrap": "^5.3.3",
+        "jspdf": "^2.5.1",
+        "jspdf-autotable": "^3.8.1",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "react-hook-form": "^7.51.0",
+        "react-input-mask": "^3.0.0-alpha.2",
+        "react-router-dom": "^6.26.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.12.12",
+        "@types/react": "^18.3.5",
+        "@types/react-dom": "^18.3.0",
+        "@typescript-eslint/eslint-plugin": "^7.11.0",
+        "@typescript-eslint/parser": "^7.11.0",
+        "@vercel/node": "^3.2.3",
+        "@vitejs/plugin-react": "^4.3.1",
+        "eslint": "^8.57.0",
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "husky": "^9.0.11",
+        "lint-staged": "^15.2.7",
+        "prettier": "^3.3.2",
+        "typescript": "^5.5.4",
+        "vite": "^5.3.4"
+    },
+    "lint-staged": {
+        "src/**/*.{ts,tsx,js,jsx}": [
+            "eslint --max-warnings=0",
+            "prettier --write"
+        ]
+    }
+}

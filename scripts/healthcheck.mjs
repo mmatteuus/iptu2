@@ -1,4 +1,4 @@
-﻿import process from "node:process";
+import process from "node:process";
 
 const baseUrl = process.env.HEALTHCHECK_BASE_URL ?? "http://127.0.0.1:3000";
 
@@ -24,13 +24,21 @@ async function main() {
   });
 
   if (simResult.error) {
-    console.error("[healthcheck] erro na simulação:", simResult.error);
+    console.error("[healthcheck] erro na simulacao:", simResult.error);
+    process.exitCode = 1;
+  } else if (!simResult.response) {
+    console.error("[healthcheck] simulacao sem resposta");
+    process.exitCode = 1;
+  } else if (simResult.response.status >= 500) {
+    console.error("[healthcheck] simulacao falhou", simResult.payload);
     process.exitCode = 1;
   } else if (simResult.response.status === 200) {
-    console.log("[healthcheck] simulação OK");
+    console.log("[healthcheck] simulacao OK");
   } else {
-    console.error("[healthcheck] simulação falhou", simResult.payload);
-    process.exitCode = 1;
+    console.warn(
+      `[healthcheck] simulacao respondeu ${simResult.response.status}, considere revisar credenciais/dados`,
+      simResult.payload
+    );
   }
 
   const searchResult = await safeFetch("/api/pesquisar-imoveis", {
@@ -40,7 +48,7 @@ async function main() {
   });
 
   if (searchResult.error) {
-    console.warn("[healthcheck] pesquisa indisponível:", searchResult.error);
+    console.warn("[healthcheck] pesquisa indisponivel:", searchResult.error);
   } else if (searchResult.response.status === 501) {
     console.log("[healthcheck] pesquisa aguardando credenciais");
   } else if (searchResult.response.status === 200) {

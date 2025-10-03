@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import parcelamentoIcon from "../assets/icons/parcelamento.svg";
 import ExportButtons from "../components/ExportButtons";
 import InstallmentsTable from "../components/InstallmentsTable";
@@ -32,7 +32,15 @@ const SimulacaoPage = () => {
 
   const totalSimulado = useMemo(() => {
     if (!parcelas.length) return 0;
-    return parcelas.slice(0, 48).reduce((acc, item) => acc + item.valorSaldoDevedor, 0);
+    return parcelas.slice(0, 48).reduce((acc, item) => {
+      const valorTotal =
+        item.valorDivida +
+        item.valorJuros +
+        item.valorMulta +
+        item.valorCorrecao +
+        item.valorExpediente;
+      return acc + valorTotal;
+    }, 0);
   }, [parcelas]);
 
   const handleSubmit = async (values: SimulationFormValues) => {

@@ -1,4 +1,4 @@
-﻿import jsPDF from "jspdf";
+import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Parcela } from "../services/prodata";
 import { formatCurrency, formatDate } from "../utils/format";
@@ -9,6 +9,10 @@ type ExportButtonsProps = {
 };
 
 const headers = ["Parcela", "Vencimento", "Valor", "Juros", "Multa", "Correcao", "Expediente", "Saldo"];
+const numberToCsv = (value?: number) => (value ?? 0).toFixed(2);
+const getParcelaTotal = (parcela: Parcela) =>
+  parcela.valorSaldoDevedor ??
+  parcela.valorDivida + parcela.valorJuros + parcela.valorMulta + parcela.valorCorrecao + parcela.valorExpediente;
 
 const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
   const hasData = parcelas.length > 0;
@@ -19,12 +23,12 @@ const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
     const csvRows = rows.map((p) => [
       p.parcela,
       formatDate(p.vencimento),
-      formatCurrency(p.valorDivida),
-      formatCurrency(p.valorJuros),
-      formatCurrency(p.valorMulta),
-      formatCurrency(p.valorCorrecao),
-      formatCurrency(p.valorExpediente),
-      formatCurrency(p.valorSaldoDevedor)
+      numberToCsv(p.valorDivida),
+      numberToCsv(p.valorJuros),
+      numberToCsv(p.valorMulta),
+      numberToCsv(p.valorCorrecao),
+      numberToCsv(p.valorExpediente),
+      numberToCsv(getParcelaTotal(p))
     ]);
     const csvContent = [headers, ...csvRows]
       .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
@@ -53,7 +57,7 @@ const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
         formatCurrency(p.valorMulta),
         formatCurrency(p.valorCorrecao),
         formatCurrency(p.valorExpediente),
-        formatCurrency(p.valorSaldoDevedor)
+        formatCurrency(getParcelaTotal(p))
       ]),
       styles: { fontSize: 9 }
     });

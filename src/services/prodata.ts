@@ -20,7 +20,7 @@ export type Parcela = {
   valorMulta: number;
   valorCorrecao: number;
   valorExpediente: number;
-  valorSaldoDevedor: number;
+  valorSaldoDevedor?: number;
 };
 
 export async function simular(payload: SimulacaoReq): Promise<Parcela[]> {

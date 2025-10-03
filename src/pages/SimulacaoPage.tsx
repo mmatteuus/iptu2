@@ -7,6 +7,7 @@ import { useAppContext } from "../context/AppContext";
 import type { Parcela, SimulacaoReq } from "../services/prodata";
 import { simular } from "../services/prodata";
 import { formatCurrency } from "../utils/format";
+import { calculateTotalSimulado, PARCELAS_LIMIT } from "../utils/installments";
 
 const SimulacaoPage = () => {
   const { selectedImovel, prefillDevedor, setPrefillDevedor } = useAppContext();
@@ -30,18 +31,7 @@ const SimulacaoPage = () => {
     };
   }, [prefillDevedor, selectedImovel]);
 
-  const totalSimulado = useMemo(() => {
-    if (!parcelas.length) return 0;
-    return parcelas.slice(0, 48).reduce((acc, item) => {
-      const valorTotal =
-        item.valorDivida +
-        item.valorJuros +
-        item.valorMulta +
-        item.valorCorrecao +
-        item.valorExpediente;
-      return acc + valorTotal;
-    }, 0);
-  }, [parcelas]);
+  const totalSimulado = useMemo(() => calculateTotalSimulado(parcelas), [parcelas]);
 
   const handleSubmit = async (values: SimulationFormValues) => {
     setLoading(true);
@@ -118,7 +108,7 @@ const SimulacaoPage = () => {
             <ExportButtons parcelas={parcelas} />
           </div>
           <InstallmentsTable parcelas={parcelas} />
-          <p className="mt-3 fw-semibold">Total simulado (ate 48 parcelas): {formatCurrency(totalSimulado)}</p>
+          <p className="mt-3 fw-semibold">Total simulado (ate {PARCELAS_LIMIT} parcelas): {formatCurrency(totalSimulado)}</p>
         </section>
       ) : null}
     </main>

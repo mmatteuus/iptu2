@@ -1,5 +1,6 @@
-﻿import type { Parcela } from "../services/prodata";
+import type { Parcela } from "../services/prodata";
 import { formatCurrency, formatDate } from "../utils/format";
+import { calculateParcelaTotal, PARCELAS_LIMIT } from "../utils/installments";
 
 type InstallmentsTableProps = {
   parcelas: Parcela[];
@@ -10,19 +11,9 @@ const InstallmentsTable = ({ parcelas }: InstallmentsTableProps) => {
     return null;
   }
 
-  const limit = 48;
-  const limitedParcelas = parcelas.slice(0, limit);
-  const total = limitedParcelas.reduce(
-    (acc, item) =>
-      acc +
-      item.valorDivida +
-      item.valorJuros +
-      item.valorMulta +
-      item.valorCorrecao +
-      item.valorExpediente,
-    0
-  );
-  const excedente = parcelas.length > limit ? parcelas.length - limit : 0;
+  const limitedParcelas = parcelas.slice(0, PARCELAS_LIMIT);
+  const total = limitedParcelas.reduce((acc, item) => acc + calculateParcelaTotal(item), 0);
+  const excedente = parcelas.length > PARCELAS_LIMIT ? parcelas.length - PARCELAS_LIMIT : 0;
 
   return (
     <section aria-label="Resultado da simulacao" className="mt-4">
@@ -42,12 +33,7 @@ const InstallmentsTable = ({ parcelas }: InstallmentsTableProps) => {
           </thead>
           <tbody>
             {limitedParcelas.map((parcela) => {
-              const valorTotal =
-                parcela.valorDivida +
-                parcela.valorJuros +
-                parcela.valorMulta +
-                parcela.valorCorrecao +
-                parcela.valorExpediente;
+              const totalParcela = calculateParcelaTotal(parcela);
               return (
                 <tr key={parcela.parcela}>
                   <td>{parcela.parcela}</td>
@@ -57,7 +43,7 @@ const InstallmentsTable = ({ parcelas }: InstallmentsTableProps) => {
                   <td>{formatCurrency(parcela.valorMulta)}</td>
                   <td>{formatCurrency(parcela.valorCorrecao)}</td>
                   <td>{formatCurrency(parcela.valorExpediente)}</td>
-                  <td>{formatCurrency(parcela.valorSaldoDevedor ?? valorTotal)}</td>
+                  <td>{formatCurrency(totalParcela)}</td>
                 </tr>
               );
             })}

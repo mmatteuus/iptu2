@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Parcela } from "../services/prodata";
 import { formatCurrency, formatDate } from "../utils/format";
+import { calculateParcelaTotal, PARCELAS_LIMIT } from "../utils/installments";
 
 type ExportButtonsProps = {
   parcelas: Parcela[];
@@ -10,11 +11,8 @@ type ExportButtonsProps = {
 
 const headers = ["Parcela", "Vencimento", "Valor", "Juros", "Multa", "Correcao", "Expediente", "Saldo"];
 const numberToCsv = (value?: number) => (value ?? 0).toFixed(2);
-const getParcelaTotal = (parcela: Parcela) =>
-  parcela.valorSaldoDevedor ??
-  parcela.valorDivida + parcela.valorJuros + parcela.valorMulta + parcela.valorCorrecao + parcela.valorExpediente;
 
-const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
+const ExportButtons = ({ parcelas, limit = PARCELAS_LIMIT }: ExportButtonsProps) => {
   const hasData = parcelas.length > 0;
   const rows = parcelas.slice(0, limit);
 
@@ -28,7 +26,7 @@ const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
       numberToCsv(p.valorMulta),
       numberToCsv(p.valorCorrecao),
       numberToCsv(p.valorExpediente),
-      numberToCsv(getParcelaTotal(p))
+      numberToCsv(calculateParcelaTotal(p))
     ]);
     const csvContent = [headers, ...csvRows]
       .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
@@ -57,7 +55,7 @@ const ExportButtons = ({ parcelas, limit = 48 }: ExportButtonsProps) => {
         formatCurrency(p.valorMulta),
         formatCurrency(p.valorCorrecao),
         formatCurrency(p.valorExpediente),
-        formatCurrency(getParcelaTotal(p))
+        formatCurrency(calculateParcelaTotal(p))
       ]),
       styles: { fontSize: 9 }
     });

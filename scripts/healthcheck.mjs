@@ -33,7 +33,11 @@ async function main() {
     console.error("[healthcheck] simulacao falhou", simResult.payload);
     process.exitCode = 1;
   } else if (simResult.response.status === 200) {
-    console.log("[healthcheck] simulacao OK");
+    if (simResult.payload && typeof simResult.payload === "object" && simResult.payload.modo === "mock") {
+      console.log("[healthcheck] simulacao em modo mock (credenciais Prodata ausentes)");
+    } else {
+      console.log("[healthcheck] simulacao OK");
+    }
   } else {
     console.warn(
       `[healthcheck] simulacao respondeu ${simResult.response.status}, considere revisar credenciais/dados`,
@@ -50,7 +54,9 @@ async function main() {
   if (searchResult.error) {
     console.warn("[healthcheck] pesquisa indisponivel:", searchResult.error);
   } else if (searchResult.response.status === 501) {
-    console.log("[healthcheck] pesquisa aguardando credenciais");
+    console.log("[healthcheck] pesquisa aguardando credenciais SIG");
+  } else if (searchResult.response.status === 503) {
+    console.log("[healthcheck] pesquisa aguardando credenciais Prodata");
   } else if (searchResult.response.status === 200) {
     console.log("[healthcheck] pesquisa habilitada");
   } else {

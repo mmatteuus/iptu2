@@ -1,120 +1,144 @@
-﻿# IPTU2 - Prefeitura de Araguaina
+# IPTU2 - Prefeitura de Araguaina
 
-Aplicacao web em duas etapas para consulta de imoveis no SIG e simulacao oficial de parcelamento via sigintegracaorest.
+Aplicacao web focada em consultar dados imobiliarios e parcelar debitos de IPTU utilizando a API oficial da Prodata (`sigintegracaorest`) com interface React acessivel.
 
 ## Stack principal
 
 - Vite + React 18 + TypeScript
 - Bootstrap 5 (sem jQuery) e icones SVG proprios
-- Proxies serverless em `/api` para SIG e Prodata
+- Funcoes serverless em `/api` (Vercel ou equivalente)
 - ESLint + Prettier + Husky + lint-staged
 
 ## Estrutura de pastas
 
 ```
 iptu2/
-├─ api/                      # Funcoes serverless (Vercel ou similares)
-│  ├─ pesquisar-imoveis.ts   # Proxy para UI SIG (CPF/CNPJ via credencial tecnica)
-│  └─ simular-repactuacao.ts # Proxy para API oficial sigintegracaorest
+├─ api/                         # Proxies serverless
+│  ├─ _auth.ts                  # Cache de token Bearer (Prodata)
+│  ├─ _lib/                     # Utilitarios compartilhados (CORS, rate limit, logs, etc.)
+│  ├─ debitos.ts                # GET /api/debitos
+│  ├─ emitir.ts                 # POST /api/emitir
+│  ├─ pesquisar-imoveis.ts      # POST /api/pesquisar-imoveis
+│  └─ simular-repactuacao.ts    # POST /api/simular-repactuacao
+├─ postman/                     # Colecao e ambiente Postman
 ├─ public/
-├─ scripts/healthcheck.mjs   # Script de verificacao pos-deploy
+├─ scripts/healthcheck.mjs      # Script de validacao pos-deploy
 ├─ src/
-│  ├─ components/            # Barra de acessibilidade, formulários, tabelas, export, etc.
-│  ├─ context/               # Estado global (acessibilidade, selecao de imovel, prefill)
-│  ├─ pages/                 # Telas Pesquisa e Simulacao
-│  ├─ services/              # Clientes fetch para os proxies
-│  ├─ utils/                 # Formatadores de moeda/data/documento
-│  └─ main.tsx               # Entrada React com React Router
+│  ├─ components/               # Barra de acessibilidade, tabelas, formulários, etc.
+│  ├─ context/                  # Estado global (selecoes + acessibilidade)
+│  ├─ pages/                    # Telas Pesquisa e Simulacao/Emissao
+│  ├─ services/                 # Clientes fetch para proxies
+│  ├─ utils/                    # Formatadores de moeda/data/documento
+│  ├─ App.tsx                   # Rotas (React Router)
+│  └─ main.tsx                  # Bootstrap da aplicacao
+├─ .env.example
 └─ README.md
 ```
 
-## Variaveis de ambiente (`.env`)
+## Variaveis de ambiente principais
 
-```
-# Pesquisa (endpoint privado da UI SIG)
-PRODATA_SIG_BASE=https://araguaina.prodataweb.inf.br
-PRODATA_SIG_PATH=/sig/rest/imovelController/pesquisarImoveis
-PRODATA_SIG_AUTH_TOKEN=
-PRODATA_SIG_HMAC_SECRET=
-PRODATA_SIG_MODULO=24
-PRODATA_SIG_ORIGIN=https://araguaina.prodataweb.inf.br
-PRODATA_SIG_URL=https://araguaina.prodataweb.inf.br/sig/app.html#/servicosonline/debito-imovel
+| Variavel | Obrigatorio | Descricao |
+|----------|-------------|-----------|
+| `PRODATA_API_BASE` | sim | URL base da API Prodata (`https://.../sigintegracaorest`) |
+| `PRODATA_USER` | sim | Usuario tecnico fornecido pela Prodata |
+| `PRODATA_PASSWORD` | sim | Senha tecnica fornecida pela Prodata |
+| `PRODATA_PESQUISA_SOURCE` | nao (default `auto`) | `api`, `sig` ou `auto` (prefere API oficial quando `PRODATA_USER/PASSWORD` estiverem definidos) |
+| `PRODATA_API_PESQUISA_PATH` | nao | Caminho alternativo para busca imobiliaria (default `/arrecadacao/obterDadosImobiliario`) |
+| `PRODATA_API_SIMULACAO_PATH` | nao | Caminho principal da simulacao (default `/arrecadacao/simulacao`) |
+| `PRODATA_API_SIMULACAO_FALLBACK_PATH` | nao | Caminho legado usado como fallback (default `/arrecadacao/simulacaoRepactuacao`) |
+| `PRODATA_API_DEBITOS_PATH` | nao | Caminho dos debitos (default `/arrecadacao/debitos`) |
+| `PRODATA_API_EMITIR_PATH` | nao | Caminho da emissao (default `/arrecadacao/emitir`) |
+| `PRODATA_SIG_*` | nao | Credenciais para fallback SIG (CPF/CNPJ) quando o endpoint oficial nao estiver disponivel |
+| `API_ALLOWED_ORIGINS` | recomendado | Lista separada por virgulas dos dominios autorizados via CORS |
+| `RATE_LIMIT_IP`, `RATE_LIMIT_IP_WINDOW_MS` | opcional | Ajuste do rate limit global por IP (default 60 requisicoes/minuto) |
+| `RATE_LIMIT_CRITICAL`, `RATE_LIMIT_CRITICAL_WINDOW_MS` | opcional | Ajuste do rate limit para rotas criticas (default 10 requisicoes/minuto por sessao) |
+| `VITE_WHATSAPP_PREFEITURA_URL` | nao | Link exibido na UI |
+| `VITE_WHATSAPP_ASSINATURA_URL` | nao | Link de assinatura exibido na UI |
 
-# Simulacao (API oficial)
-PRODATA_API_BASE=https://araguaina.prodataweb.inf.br/sigintegracaorest
-PRODATA_API_TOKEN=
+> Consulte `.env.example` para o conjunto completo de variaveis e valores padrao. Nunca commite credenciais reais.
 
-# URLs expostas no front (WhatsApp)
-VITE_WHATSAPP_PREFEITURA_URL=https://wa.me/5563999999999
-VITE_WHATSAPP_ASSINATURA_URL=https://wa.me/5563999999999
-```
+## Proxies `/api` implementados
 
-- Guarde tokens e segredos apenas no backend. A aplicacao chama sempre os proxies em `/api`.
-- Se `PRODATA_SIG_AUTH_TOKEN` ou `PRODATA_SIG_HMAC_SECRET` nao forem definidos, o proxy `/api/pesquisar-imoveis` responde **501** e a UI oferece fluxo manual por CCI/CCP/DUAM.
+Todos os handlers compartilham:
 
-## Scripts principais
+- CORS restritivo (`API_ALLOWED_ORIGINS`) com suporte a `OPTIONS`.
+- Rate limit combinado por IP (60/min) e por rota critica (10/min). Ajuste via variaveis de ambiente.
+- `x-correlation-id` ecoado na resposta (gera automaticamente quando nao informado).
+- Logs JSON estruturados com mascaramento de CPF/CNPJ/tokens (sem dados sensiveis).
+- Metricas em memoria (contagem, erro, p95) com alertas em log quando ultrapassados os limites.
 
-- `npm run dev` – inicia servidor Vite.
-- `npm run build` – `tsc -b` + build Vite.
-- `npm run lint` – ESLint nos fontes TS/TSX.
-- `npm run healthcheck` – executa `scripts/healthcheck.mjs` (ver abaixo).
-- `npm run prepare` – instala ganchos Husky.
+| Rota | Metodo | Descricao |
+|------|--------|-----------|
+| `/api/pesquisar-imoveis` | POST | Recebe `{ cpfCNPJ? , inscricao?, cci?, ccp? }`. Em modo `api` consulta o endpoint oficial, normaliza resultados e devolve `[ { nome, cgc, cci, ccp, inscricao, logradouro, bairro, origem } ]`. Em modo `sig` preserva a chamada HMAC ao SIG e devolve formato equivalente; sem credenciais responde `501` com instrucoes de fallback. |
+| `/api/simular-repactuacao` | POST | Envia payload completo para a Prodata, reutilizando token Bearer com cache renovado T-60s. Sem credenciais responde `200` com `modo: "mock"` para manter o healthcheck. Erros padronizados conforme status (`400/422`, `401`, `404`, `409`, `5xx`). |
+| `/api/debitos` | GET | Aceita `inscricaoImobiliaria`, `cci` ou `ccp` como query string. Encaminha para Prodata e devolve a resposta original. |
+| `/api/emitir` | POST | Confirma uma simulacao (requer `simulacaoId`). Reenvia `confirmacao: true` por padrao e retorna dados relevantes (numero do titulo, linha digitavel, URL do boleto, etc.) quando presentes. |
 
-### Healthcheck
+### Cache de autenticacao
 
-Script pensado para rodar apos deploy a partir de uma URL base:
+- `api/_auth.ts` gera tokens via `POST /autenticacao` com `{ usuario, senha }`.
+- Armazena o token e `expiresIn` em memoria; renova automaticamente quando restarem menos de 60s.
+- Em caso de `401` a chamada invalida o cache, renova e tenta novamente uma unica vez.
+- Falhas na autenticacao geram log estruturado (sem vazar credenciais) e retornam erro 503 para o cliente.
 
-```bash
-HEALTHCHECK_BASE_URL=https://seu-deploy.vercel.app npm run healthcheck
-```
+## Front-end
 
-- Esperado: `/api/simular-repactuacao` responder `200` sem credenciais.
-- `/api/pesquisar-imoveis` deve retornar `501` quando os segredos nao estiverem configurados (mensagem "aguardando credenciais").
+### Pesquisa (`/pesquisa`)
 
-## Fluxos implementados
+- Campo CPF/CNPJ com mascara. Quando a API oficial esta habilitada, permite CPF/CNPJ/inscricao/CCI/CCP (via `pesquisarImoveis`).  
+- Resultado normalizado indica a origem (`API`, `SIG` ou `Manual`), permitindo identificar a fonte dos dados.
+- Resposta `501` ativa automaticamente o fluxo manual (CCI/CCP/Inscricao/DUAM).  
+- Erros (400, 401, 404, 429, 5xx) exibem mensagens alinhadas ao padrao de UX do projeto.
 
-### Tela 1 — Pesquisa (`/pesquisa`)
+### Simulacao e emissao (`/simulacao`)
 
-- Entrada CPF/CNPJ com mascara e validacao.
-- Chamada ao proxy `/api/pesquisar-imoveis` (mensagens claras para 501/401/403).
-- Lista de imoveis (nome, CCI, CCP, inscricao, endereco) com botoes que pre-preenchem a simulacao.
-- Fallback quando nao ha credenciais: campos CCI/CCP/Inscricao/DUAM e redirecionamento manual.
+- Prefill automatico baseado na selecao de imovel.
+- Chamada a `/api/simular-repactuacao` retorna `SimulacaoResult`, preservando `simulacaoId`, mensagem do backend e modo mock.
+- Resultado renderiza ate 48 parcelas com exportacao CSV/PDF.
+- Botao "Aceitar simulacao e emitir" dispara `/api/emitir`, exibindo numero do titulo, vencimento, valor total, linha digitavel, codigo de barras e link do boleto quando disponiveis.
+- Tratamento de erros diferenciando `401`, `409`, `422`, `429` e `5xx`.
 
-### Tela 2 — Simulacao (`/simulacao`)
+## Observabilidade e seguranca
 
-- Formulario completo (tipo devedor, codigo, vencimento, tipo de entrada, percentual/valor, DUAM).
-- Chamada ao proxy `/api/simular-repactuacao` com limites de 48 parcelas.
-- Tabela responsiva com resumo por parcela e totalizador.
-- Exportacoes CSV e PDF (jsPDF + autoTable) considerando as 48 primeiras parcelas.
+- **Logs**: formatados em JSON, mascarando documentos e tokens; sempre incluem `correlationId`, rota e status.
+- **Correlation ID**: aceito via header `x-correlation-id` (gerado automaticamente quando ausente) e devolvido na resposta.
+- **Rate limit**: limites padrao 60 req/min por IP e 10 req/min para rotas criticas (`simular`, `emitir`, `debitos`). Resposta `429` com `Retry-After`.
+- **Metricas**: contagem, taxa de erro e p95 por rota, com alertas em log quando erro >= 2% por mais de 5 minutos ou p95 > 2000 ms.
+- **CORS**: somente origens listadas em `API_ALLOWED_ORIGINS`. Requisicoes de origens nao autorizadas retornam `403`.
+- **LGPD**: dados sensiveis mascarados nos logs; nao ha armazenamento persistente de payloads completos nos proxies.
 
-## Acessibilidade e UX
+## Healthcheck (`npm run healthcheck`)
 
-- Barra flotante com A+/A/A-, alto contraste, foco visivel e rotulos claros.
-- Navegacao por teclado preservada via Bootstrap 5.
-- Avisos `aria-live` para mensagens de erro/estado.
-- Datas e valores formatados em `pt-BR`.
-- Botao flutuante para WhatsApp da Prefeitura e assinatura "Desenvolvido por MtsFerreira" com deep link.
+Executa duas chamadas na URL base configurada pela variavel `HEALTHCHECK_BASE_URL`:
 
-## Observacoes e limites
+- `/api/simular-repactuacao`: sucesso esperado `200`. Se o payload contiver `modo: "mock"` significa que as credenciais de producao ainda nao foram informadas.
+- `/api/pesquisar-imoveis`:  
+  - `200` indica pesquisa habilitada (API ou SIG).  
+  - `501` indica que as credenciais SIG nao foram configuradas.  
+  - `503` indica ausência de credenciais Prodata para o modo API.
 
-- Simulacao limita a exibicao a 48 parcelas; se a API retornar mais, a UI alerta o usuario.
-- A pesquisa por CPF/CNPJ depende de credenciais fornecidas pela TI municipal (token + assinatura HMAC). Sem elas, apenas o fluxo manual estara ativo.
-- Os proxies devem ser hospedados em ambiente seguro (Vercel `/api` ou Netlify functions). Nunca exponha tokens no front.
-- Bundle gerado inclui bibliotecas pesadas (jsPDF/html2canvas); caso deseje reduzir o tamanho, considere carregamento sob demanda dos exports.
+## Colecao Postman
+
+- Arquivos localizados em `postman/`:
+  - `iptu2.postman_collection.json`
+  - `iptu2.postman_environment.json`
+- Variaveis principais: `apiBase`, `user`, `password`, `token`, `cpf`, `inscricaoImobiliaria`, `cci`, `ccp`, `simulacaoId`.
+- A request "Autenticacao" inclui script que salva `{{token}}` automaticamente (`pm.environment.set("token", ...)`) para reutilizar nas chamadas subsequentes (obter dados imobiliarios, debitos, simulacao e emissao).
+- Ajuste os valores do ambiente antes de executar a colecao. Nunca exponha credenciais em commits.
 
 ## Como rodar localmente
 
-1. Preencha `.env` com as variaveis relevantes.
-2. `npm install`
-3. `npm run dev`
-4. Acesse `http://localhost:5173`.
+1. Copie `.env.example` para `.env` e preencha as variaveis necessarias.
+2. Instale dependencias: `npm install`.
+3. Inicie o front: `npm run dev` e acesse `http://localhost:5173`.
+4. Para validar build/linters:
+   - `npm run lint`
+   - `npm run build`
+5. Opcional: `HEALTHCHECK_BASE_URL=http://localhost:3000 npm run healthcheck` apos levantar os proxies em desenvolvimento.
 
-Para validar a build: `npm run build`.
+## Politica de contribucao
 
----
-
-Contribuicoes:
-
-- Padrao de commit sugerido: atomicos por feature (scaffold, proxies, servicos, telas, acessibilidade, export, docs).
-- Branch inicial sugerida: `feat/pesquisa-simulacao-iptu`.
+- Commits atomicos por feature (proxies, servicos, telas, docs, etc.).
+- Evite expor dados sensiveis em commits, issues ou PRs.
+- Testes manuais via Postman/Insomnia antes de subir PRs envolvendo integracao real.
 

@@ -43,15 +43,42 @@ const PesquisaPage = () => {
         setInfoMessage("Nenhum imovel foi retornado para o documento informado.");
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro ao consultar";
-      if (message.includes("desabilitada")) {
+      const errorWithStatus = err as Error & { status?: number };
+      const message = errorWithStatus?.message ?? "Erro ao consultar o servico.";
+      const status = errorWithStatus?.status;
+
+      if (status === 501) {
         setFallbackMode(true);
         setInfoMessage(message);
-      } else if (message.includes("401") || message.includes("403")) {
-        setError("Servico exige credenciais oficiais. Fale com a Fazenda Municipal.");
-      } else {
-        setError(message);
+        return;
       }
+
+      if (status === 404) {
+        setInfoMessage("Nenhum imovel foi retornado para o documento informado.");
+        return;
+      }
+
+      if (status === 400) {
+        setDocError(message);
+        return;
+      }
+
+      if (status === 503) {
+        setError("Pesquisa indisponivel. Configure credenciais da API ou utilize a busca manual.");
+        return;
+      }
+
+      if (status === 429) {
+        setError("Muitas pesquisas em sequencia. Aguarde um minuto e tente novamente.");
+        return;
+      }
+
+      if (message.toLowerCase().includes("credenciais")) {
+        setError("Servico exige credenciais oficiais. Fale com a Fazenda Municipal.");
+        return;
+      }
+
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -59,7 +86,14 @@ const PesquisaPage = () => {
 
   const handleSelect = (imovel: ImovelPesquisa) => {
     setSelectedImovel(imovel);
-    setPrefillDevedor({ tipo: "I", codigo: Number(imovel.cci) });
+    const codigoBase = imovel.cci ?? imovel.ccp;
+    const codigo = codigoBase ? Number.parseInt(codigoBase, 10) : NaN;
+    const tipo: "I" | "P" = imovel.cci ? "I" : "P";
+    if (Number.isFinite(codigo)) {
+      setPrefillDevedor({ tipo, codigo, duams: undefined });
+    } else {
+      setPrefillDevedor(undefined);
+    }
     navigate("/simulacao");
   };
 
@@ -78,12 +112,13 @@ const PesquisaPage = () => {
     }
     setSelectedImovel({
       nome: "Selecionado manualmente",
-      cgc: 0,
-      cci: Number(cci) || 0,
-      ccp: Number(ccp) || 0,
+      cgc: undefined,
+      cci: cci || undefined,
+      ccp: ccp || undefined,
       inscricao: fallbackForm.inscricao || undefined,
       logradouro: undefined,
-      bairro: undefined
+      bairro: undefined,
+      origem: "manual"
     });
     setPrefillDevedor({ tipo, codigo, duams: fallbackForm.duams || undefined });
     navigate("/simulacao");

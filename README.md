@@ -4,7 +4,7 @@ Aplicacao web que integra o front-end React + Vite com a API oficial da Prodata 
 
 ## Stack
 
-- Node.js >= 18 (fetch global nativo)
+- Node.js
 - Vite + React 18 + TypeScript
 - Funcoes serverless em `/api`
 - Zod para validacao runtime
@@ -114,13 +114,13 @@ Todos os handlers compartilham:
 
 ## Postman / Insomnia
 
-Colecao em `postman/` com os cinco passos canônicos:
+Colecao em `postman/` com os cinco passos canÃ´nicos:
 
-1. `POST /autenticacao` – pre-request script salva `token`.
+1. `POST /autenticacao` â€“ pre-request script salva `token`.
 2. `GET /imoveis?cpf=...` (ou `cnpj`).
 3. `GET /debitos?inscricao=...` (ou `cci`/`ccp`).
-4. `POST /simulacao` – envia identificacao, itens e opcoes.
-5. `POST /emitir` – confirma a simulacao.
+4. `POST /simulacao` â€“ envia identificacao, itens e opcoes.
+5. `POST /emitir` â€“ confirma a simulacao.
 
 Ajuste as variaveis de ambiente antes de executar. Nunca compartilhe tokens reais.
 

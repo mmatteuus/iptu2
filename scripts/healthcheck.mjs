@@ -17,10 +17,14 @@ async function safeFetch(path, init) {
 async function main() {
   console.log(`[healthcheck] Base URL: ${baseUrl}`);
 
-  const simResult = await safeFetch("/api/simular-repactuacao", {
+  const simResult = await safeFetch("/api/simulacao", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tipoDevedor: "I", devedor: 0, vencimento: "1900-01-01", tipoEntrada: "PERCENTUAL" })
+    body: JSON.stringify({
+      identificacao: { inscricaoImobiliaria: "000000000000" },
+      itensSelecionados: [{ id: "healthcheck", valor: 0 }],
+      opcoes: { parcelas: 1, vencimento: "1900-01-01" }
+    })
   });
 
   if (simResult.error) {
@@ -45,22 +49,22 @@ async function main() {
     );
   }
 
-  const searchResult = await safeFetch("/api/pesquisar-imoveis", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cpfCNPJ: "00000000000" })
+  const searchResult = await safeFetch("/api/debitos?inscricao=000000000000", {
+    method: "GET"
   });
 
   if (searchResult.error) {
     console.warn("[healthcheck] pesquisa indisponivel:", searchResult.error);
   } else if (searchResult.response.status === 501) {
-    console.log("[healthcheck] pesquisa aguardando credenciais SIG");
+    console.log("[healthcheck] debitos aguardando credenciais SIG");
   } else if (searchResult.response.status === 503) {
-    console.log("[healthcheck] pesquisa aguardando credenciais Prodata");
+    console.log("[healthcheck] debitos aguardando credenciais Prodata");
   } else if (searchResult.response.status === 200) {
-    console.log("[healthcheck] pesquisa habilitada");
+    console.log("[healthcheck] debitos habilitados");
+  } else if (searchResult.response.status === 422 || searchResult.response.status === 400) {
+    console.log("[healthcheck] debitos responderam com validacao (esperado sem dados reais)");
   } else {
-    console.warn("[healthcheck] pesquisa retornou status", searchResult.response.status, searchResult.payload);
+    console.warn("[healthcheck] debitos retornaram status", searchResult.response.status, searchResult.payload);
   }
 }
 

@@ -1,17 +1,20 @@
-﻿import { createContext, useContext, useMemo, useState, useEffect, type ReactNode } from "react";
-import type { ImovelPesquisa } from "../services/sig";
-
-export type PrefillDevedor = {
-  tipo: "I" | "P";
-  codigo: number;
-  duams?: string;
-};
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  useEffect,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction
+} from "react";
+import type { DebitoResumo, Identificacao } from "../services/prodata";
 
 type AppContextValue = {
-  selectedImovel?: ImovelPesquisa;
-  setSelectedImovel: (value?: ImovelPesquisa) => void;
-  prefillDevedor?: PrefillDevedor;
-  setPrefillDevedor: (value?: PrefillDevedor) => void;
+  identificacao?: Identificacao;
+  setIdentificacao: (value?: Identificacao) => void;
+  debitosSelecionados: DebitoResumo[];
+  setDebitosSelecionados: Dispatch<SetStateAction<DebitoResumo[]>>;
   lastDocumento?: string;
   setLastDocumento: (value?: string) => void;
   fontScale: number;
@@ -27,8 +30,8 @@ const MAX_FONT_SCALE = 1.3;
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const [selectedImovel, setSelectedImovel] = useState<ImovelPesquisa | undefined>(undefined);
-  const [prefillDevedor, setPrefillDevedor] = useState<PrefillDevedor | undefined>(undefined);
+  const [identificacao, setIdentificacao] = useState<Identificacao | undefined>(undefined);
+  const [debitosSelecionados, setDebitosSelecionados] = useState<DebitoResumo[]>([]);
   const [lastDocumento, setLastDocumento] = useState<string | undefined>(undefined);
   const [fontScale, setFontScale] = useState<number>(1);
   const [highContrast, setHighContrast] = useState<boolean>(false);
@@ -48,10 +51,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const value = useMemo<AppContextValue>(
     () => ({
-      selectedImovel,
-      setSelectedImovel,
-      prefillDevedor,
-      setPrefillDevedor,
+      identificacao,
+      setIdentificacao,
+      debitosSelecionados,
+      setDebitosSelecionados,
       lastDocumento,
       setLastDocumento,
       fontScale,
@@ -63,7 +66,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       highContrast,
       toggleHighContrast: () => setHighContrast((prev) => !prev)
     }),
-    [selectedImovel, prefillDevedor, lastDocumento, fontScale, highContrast]
+    [identificacao, debitosSelecionados, lastDocumento, fontScale, highContrast]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

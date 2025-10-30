@@ -1,126 +1,157 @@
-﻿import { FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import searchIcon from "../assets/icons/search.svg";
-import DocInput from "../components/DocInput";
-import SearchResults from "../components/SearchResults";
 import { useAppContext } from "../context/AppContext";
-import type { ImovelPesquisa } from "../services/sig";
-import { pesquisarImoveisPorDocumento } from "../services/sig";
+import type { DebitoImovel, DebitoResumo, DebitosParams } from "../services/prodata";
+import { consultarDebitos } from "../services/prodata";
+import { formatCurrency, formatDate, formatCpfCnpj } from "../utils/format";
+
+type FormState = {
+  cpfCnpj: string;
+  inscricao: string;
+  cci: string;
+  ccp: string;
+};
+
+type SelecoesState = Record<number, string[]>;
+
+const initialForm: FormState = {
+  cpfCnpj: "",
+  inscricao: "",
+  cci: "",
+  ccp: ""
+};
+
+function normalizeFormToParams(form: FormState): DebitosParams {
+  const params: DebitosParams = {};
+  const digits = form.cpfCnpj.replace(/\D/g, "");
+  if (digits.length === 11) params.cpf = digits;
+  if (digits.length >= 14) params.cnpj = digits;
+  if (form.inscricao.trim()) params.inscricao = form.inscricao.trim();
+  if (form.cci.trim()) params.cci = form.cci.trim();
+  if (form.ccp.trim()) params.ccp = form.ccp.trim();
+  return params;
+}
+
+function hasAnyParam(params: DebitosParams) {
+  return Boolean(params.cpf || params.cnpj || params.inscricao || params.cci || params.ccp);
+}
+
+function buildIdentificacao(imovel: DebitoImovel) {
+  return {
+    inscricaoImobiliaria: imovel.inscricao,
+    cci: imovel.cci,
+    ccp: imovel.ccp
+  };
+}
+
+function getValorDebito(item: DebitoResumo) {
+  return item.valorAtualizado ?? item.valorPrincipal ?? 0;
+}
 
 const PesquisaPage = () => {
   const navigate = useNavigate();
-  const { setSelectedImovel, setPrefillDevedor, lastDocumento, setLastDocumento } = useAppContext();
-  const [documento, setDocumento] = useState(lastDocumento ?? "");
+  const { setIdentificacao, setDebitosSelecionados, setLastDocumento, lastDocumento } = useAppContext();
+  const [form, setForm] = useState<FormState>({
+    ...initialForm,
+    cpfCnpj: lastDocumento ?? ""
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [docError, setDocError] = useState<string | undefined>();
-  const [infoMessage, setInfoMessage] = useState<string | undefined>();
-  const [results, setResults] = useState<ImovelPesquisa[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [fallbackMode, setFallbackMode] = useState(false);
-  const [fallbackForm, setFallbackForm] = useState({ cci: "", ccp: "", inscricao: "", duams: "" });
+  const [info, setInfo] = useState<string | undefined>();
+  const [resultados, setResultados] = useState<DebitoImovel[]>([]);
+  const [selecoes, setSelecoes] = useState<SelecoesState>({});
+  const [imovelIndex, setImovelIndex] = useState(0);
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  };
 
   const handleSearch = async (event: FormEvent) => {
     event.preventDefault();
     setError(undefined);
-    setDocError(undefined);
-    setInfoMessage(undefined);
-    setHasSearched(true);
-    setFallbackMode(false);
-    setResults([]);
-    const digits = documento.replace(/\D/g, "");
-    if (digits.length < 11) {
-      setDocError("Informe um CPF ou CNPJ com pelo menos 11 digitos.");
+    setInfo(undefined);
+    setLoading(true);
+    setResultados([]);
+    setSelecoes({});
+    setImovelIndex(0);
+
+    const params = normalizeFormToParams(form);
+
+    if (!hasAnyParam(params)) {
+      setError("Informe ao menos um identificador (CPF/CNPJ, Inscricao, CCI ou CCP).");
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
     try {
-      const response = await pesquisarImoveisPorDocumento(digits);
-      setLastDocumento(digits);
-      setResults(response);
-      if (!response.length) {
-        setInfoMessage("Nenhum imovel foi retornado para o documento informado.");
+      const response = await consultarDebitos(params);
+      if (!response.resultados.length) {
+        setInfo("Nenhum debito localizado para os dados informados.");
+        return;
+      }
+
+      setResultados(response.resultados);
+      if (params.cpf || params.cnpj) {
+        setLastDocumento(params.cpf ?? params.cnpj);
       }
     } catch (err) {
       const errorWithStatus = err as Error & { status?: number };
-      const message = errorWithStatus?.message ?? "Erro ao consultar o servico.";
       const status = errorWithStatus?.status;
-
-      if (status === 501) {
-        setFallbackMode(true);
-        setInfoMessage(message);
-        return;
+      if (status === 422 || status === 400) {
+        setError("Dados invalidos. Revise os campos e tente novamente.");
+      } else if (status === 404) {
+        setInfo("Nenhum debito localizado.");
+      } else if (status === 429) {
+        setError("Muitas consultas em sequencia. Aguarde e tente novamente.");
+      } else if (status === 503) {
+        setError("Servico indisponivel. Configure as credenciais ou tente mais tarde.");
+      } else {
+        setError(errorWithStatus?.message ?? "Erro ao consultar debitos.");
       }
-
-      if (status === 404) {
-        setInfoMessage("Nenhum imovel foi retornado para o documento informado.");
-        return;
-      }
-
-      if (status === 400) {
-        setDocError(message);
-        return;
-      }
-
-      if (status === 503) {
-        setError("Pesquisa indisponivel. Configure credenciais da API ou utilize a busca manual.");
-        return;
-      }
-
-      if (status === 429) {
-        setError("Muitas pesquisas em sequencia. Aguarde um minuto e tente novamente.");
-        return;
-      }
-
-      if (message.toLowerCase().includes("credenciais")) {
-        setError("Servico exige credenciais oficiais. Fale com a Fazenda Municipal.");
-        return;
-      }
-
-      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelect = (imovel: ImovelPesquisa) => {
-    setSelectedImovel(imovel);
-    const codigoBase = imovel.cci ?? imovel.ccp;
-    const codigo = codigoBase ? Number.parseInt(codigoBase, 10) : NaN;
-    const tipo: "I" | "P" = imovel.cci ? "I" : "P";
-    if (Number.isFinite(codigo)) {
-      setPrefillDevedor({ tipo, codigo, duams: undefined });
-    } else {
-      setPrefillDevedor(undefined);
-    }
-    navigate("/simulacao");
+  const currentImovel = resultados[imovelIndex];
+  const selecionadosAtuais = useMemo(() => new Set(selecoes[imovelIndex] ?? []), [selecoes, imovelIndex]);
+
+  const toggleDebito = (id: string) => {
+    setSelecoes((current) => {
+      const atual = new Set(current[imovelIndex] ?? []);
+      if (atual.has(id)) {
+        atual.delete(id);
+      } else {
+        atual.add(id);
+      }
+      return { ...current, [imovelIndex]: Array.from(atual) };
+    });
   };
 
-  const handleFallbackSubmit = () => {
-    const cci = fallbackForm.cci.trim();
-    const ccp = fallbackForm.ccp.trim();
-    if (!cci && !ccp) {
-      setError("Informe CCI ou CCP para continuar.");
+  const handleIrParaSimulacao = () => {
+    if (!currentImovel) return;
+    const selecionadosIds = new Set(selecoes[imovelIndex] ?? []);
+    const itensSelecionados = currentImovel.debitos.filter((item) => selecionadosIds.has(item.id));
+
+    if (!itensSelecionados.length) {
+      setError("Selecione ao menos um debito para prosseguir.");
       return;
     }
-    const tipo = cci ? "I" : "P";
-    const codigo = Number(tipo === "I" ? cci : ccp);
-    if (!Number.isFinite(codigo) || codigo <= 0) {
-      setError("Informe um codigo numerico valido.");
-      return;
+
+    setIdentificacao(buildIdentificacao(currentImovel));
+    setDebitosSelecionados(
+      itensSelecionados.map((item) => ({
+        ...item,
+        valorAtualizado: getValorDebito(item)
+      }))
+    );
+
+    if (currentImovel.documento) {
+      setLastDocumento(currentImovel.documento);
     }
-    setSelectedImovel({
-      nome: "Selecionado manualmente",
-      cgc: undefined,
-      cci: cci || undefined,
-      ccp: ccp || undefined,
-      inscricao: fallbackForm.inscricao || undefined,
-      logradouro: undefined,
-      bairro: undefined,
-      origem: "manual"
-    });
-    setPrefillDevedor({ tipo, codigo, duams: fallbackForm.duams || undefined });
+
     navigate("/simulacao");
   };
 
@@ -131,30 +162,66 @@ const PesquisaPage = () => {
           <img src={searchIcon} alt="" width={48} height={48} aria-hidden="true" />
           <div>
             <h1 className="h3 mb-1">Consulta de debitos do imovel</h1>
-            <p className="mb-0 text-muted">Utilize o CPF ou CNPJ do titular para localizar imoveis vinculados no SIG.</p>
+            <p className="mb-0 text-muted">
+              Informe CPF/CNPJ ou identificacao do imovel para listar debitos e seguir para a simulacao.
+            </p>
           </div>
         </div>
       </header>
 
       <section className="card shadow-sm mb-4">
         <div className="card-body">
-          <form className="row g-3" onSubmit={handleSearch} aria-describedby="pesquisaHint">
+          <form className="row g-3" onSubmit={handleSearch}>
             <div className="col-12 col-md-6">
-              <DocInput
-                label="CPF ou CNPJ"
-                value={documento}
-                onChange={setDocumento}
-                descriptionId="pesquisaHint"
-                error={docError}
+              <label htmlFor="cpfCnpj" className="form-label">
+                CPF ou CNPJ
+              </label>
+              <input
+                id="cpfCnpj"
+                name="cpfCnpj"
+                className="form-control"
+                value={form.cpfCnpj}
+                onChange={handleInputChange}
+                placeholder="Somente numeros"
+                inputMode="numeric"
               />
             </div>
-            <div className="col-12 col-md-6 d-flex align-items-end">
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? "Pesquisando..." : "Pesquisar"}
-              </button>
+            <div className="col-12 col-md-6">
+              <label htmlFor="inscricao" className="form-label">
+                Inscricao imobiliaria
+              </label>
+              <input id="inscricao" name="inscricao" className="form-control" value={form.inscricao} onChange={handleInputChange} />
             </div>
-            <div id="pesquisaHint" className="form-text">
-              As credenciais oficiais sao fornecidas pela Prefeitura de Araguaina.
+            <div className="col-12 col-md-6">
+              <label htmlFor="cci" className="form-label">
+                CCI (imovel)
+              </label>
+              <input id="cci" name="cci" className="form-control" value={form.cci} onChange={handleInputChange} />
+            </div>
+            <div className="col-12 col-md-6">
+              <label htmlFor="ccp" className="form-label">
+                CCP (contribuinte)
+              </label>
+              <input id="ccp" name="ccp" className="form-control" value={form.ccp} onChange={handleInputChange} />
+            </div>
+            <div className="col-12 d-flex gap-2 align-items-end">
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? "Consultando..." : "Buscar debitos"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={() => {
+                  setForm(initialForm);
+                  setResultados([]);
+                  setSelecoes({});
+                  setImovelIndex(0);
+                  setError(undefined);
+                  setInfo(undefined);
+                }}
+              >
+                Limpar
+              </button>
             </div>
           </form>
           {error ? (
@@ -162,92 +229,128 @@ const PesquisaPage = () => {
               {error}
             </div>
           ) : null}
-          {infoMessage ? (
+          {info ? (
             <div className="alert alert-info mt-3" role="status" aria-live="polite">
-              {infoMessage}
+              {info}
             </div>
           ) : null}
         </div>
       </section>
 
-      {fallbackMode ? (
-        <section className="card border-warning mb-4" aria-label="Busca alternativa">
-          <div className="card-body">
-            <h2 className="h5">Sem credenciais para CPF ou CNPJ</h2>
-            <p className="text-muted">Informe CCI ou CCP e siga para a simulacao.</p>
-            <div className="row g-3">
-              <div className="col-12 col-md-3">
-                <label htmlFor="cci" className="form-label">
-                  CCI (imovel)
-                </label>
-                <input
-                  id="cci"
-                  type="number"
-                  inputMode="numeric"
-                  className="form-control"
-                  value={fallbackForm.cci}
-                  onChange={(event) => setFallbackForm((current) => ({ ...current, cci: event.target.value }))}
-                />
-              </div>
-              <div className="col-12 col-md-3">
-                <label htmlFor="ccp" className="form-label">
-                  CCP (contribuinte)
-                </label>
-                <input
-                  id="ccp"
-                  type="number"
-                  inputMode="numeric"
-                  className="form-control"
-                  value={fallbackForm.ccp}
-                  onChange={(event) => setFallbackForm((current) => ({ ...current, ccp: event.target.value }))}
-                />
-              </div>
-              <div className="col-12 col-md-3">
-                <label htmlFor="inscricao" className="form-label">
-                  Inscricao (opcional)
-                </label>
-                <input
-                  id="inscricao"
-                  type="text"
-                  className="form-control"
-                  value={fallbackForm.inscricao}
-                  onChange={(event) => setFallbackForm((current) => ({ ...current, inscricao: event.target.value }))}
-                />
-              </div>
-              <div className="col-12 col-md-3">
-                <label htmlFor="duams" className="form-label">
-                  DUAM(s) (opcional)
-                </label>
-                <input
-                  id="duams"
-                  type="text"
-                  className="form-control"
-                  placeholder="123, 456"
-                  value={fallbackForm.duams}
-                  onChange={(event) => setFallbackForm((current) => ({ ...current, duams: event.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="mt-3 d-flex gap-2">
-              <button type="button" className="btn btn-outline-primary" onClick={handleFallbackSubmit}>
-                Continuar para simulacao
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {results.length > 0 ? (
+      {resultados.length ? (
         <section className="card">
           <div className="card-body">
-            <h2 className="h5">Imoveis encontrados</h2>
-            <SearchResults results={results} onSelect={handleSelect} />
+            <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <h2 className="h5 mb-0">Selecione os debitos para parcelamento</h2>
+              {resultados.length > 1 ? (
+                <div className="d-flex align-items-center gap-2">
+                  <label htmlFor="imovelIndex" className="form-label mb-0">
+                    Imovel
+                  </label>
+                  <select
+                    id="imovelIndex"
+                    className="form-select form-select-sm"
+                    value={imovelIndex}
+                    onChange={(event) => setImovelIndex(Number(event.target.value))}
+                  >
+                    {resultados.map((item, idx) => (
+                      <option key={`imovel-${idx}`} value={idx}>
+                        {item.inscricao ?? item.cci ?? item.ccp ?? `Imovel ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+
+            {currentImovel ? (
+              <>
+                <div className="mb-3">
+                  <p className="mb-1">
+                    <strong>Proprietario:</strong> {currentImovel.proprietario ?? "Nao informado"}
+                  </p>
+                  <p className="mb-1">
+                    <strong>Documento:</strong> {currentImovel.documento ? formatCpfCnpj(currentImovel.documento) : "-"}
+                  </p>
+                  <p className="mb-1">
+                    <strong>Endereco:</strong> {currentImovel.endereco ?? "-"}
+                  </p>
+                  <p className="mb-0">
+                    <strong>Identificacao:</strong>{" "}
+                    {[
+                      currentImovel.inscricao ? `Inscricao ${currentImovel.inscricao}` : null,
+                      currentImovel.cci ? `CCI ${currentImovel.cci}` : null,
+                      currentImovel.ccp ? `CCP ${currentImovel.ccp}` : null
+                    ]
+                      .filter(Boolean)
+                      .join(" | ") || "-"}
+                  </p>
+                </div>
+
+                {currentImovel.debitos.length ? (
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle">
+                      <thead className="table-light">
+                        <tr>
+                          <th>Selecionar</th>
+                          <th>Descricao</th>
+                          <th>Situacao</th>
+                          <th>Vencimento</th>
+                          <th className="text-end">Valor atualizado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentImovel.debitos.map((debito) => {
+                          const checked = selecionadosAtuais.has(debito.id);
+                          const valor = getValorDebito(debito);
+                          return (
+                            <tr key={debito.id}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  className="form-check-input"
+                                  checked={checked}
+                                  onChange={() => toggleDebito(debito.id)}
+                                  aria-label={`Selecionar debito ${debito.descricao ?? debito.id}`}
+                                />
+                              </td>
+                              <td>{debito.descricao ?? debito.id}</td>
+                              <td>{debito.situacao ?? "-"}</td>
+                              <td>{debito.vencimento ? formatDate(debito.vencimento) : "-"}</td>
+                              <td className="text-end">{formatCurrency(valor)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-muted">Nenhum debito listado para este imovel.</p>
+                )}
+
+                <div className="d-flex flex-wrap justify-content-between align-items-center mt-3">
+                  <p className="mb-0">
+                    <strong>Selecionados:</strong> {selecionadosAtuais.size} / {currentImovel.debitos.length} |{" "}
+                    <strong>Total estimado:</strong>{" "}
+                    {formatCurrency(
+                      currentImovel.debitos
+                        .filter((item) => selecionadosAtuais.has(item.id))
+                        .reduce((acc, item) => acc + getValorDebito(item), 0)
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={handleIrParaSimulacao}
+                    disabled={!selecionadosAtuais.size}
+                  >
+                    Ir para simulacao
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         </section>
-      ) : hasSearched && !loading && !fallbackMode && !error && !infoMessage ? (
-        <p className="text-muted" role="status" aria-live="polite">
-          Nenhum imovel localizado.
-        </p>
       ) : null}
     </main>
   );

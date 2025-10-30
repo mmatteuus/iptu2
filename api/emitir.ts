@@ -1,19 +1,17 @@
+import { z } from "zod";
 import { hasProdataCredentials } from "./_auth";
 import { createHandler, readJsonBody } from "./_lib/http";
 import { prodataFetch } from "./_lib/prodataFetch";
-import { sendProdataError } from "./_lib/errors";
+import { sendProdataError, sendValidationError } from "./_lib/errors";
 
 const EMITIR_PATH = process.env.PRODATA_API_EMITIR_PATH ?? "/arrecadacao/emitir";
 
-function extractSimulacaoId(body: Record<string, unknown>) {
-  const raw = body.simulacaoId ?? body.idSimulacao ?? body.id;
-  if (typeof raw === "number") return raw.toString();
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
-}
+const BodySchema = z
+  .object({
+    simulacaoId: z.union([z.string(), z.number()]),
+    confirmacao: z.boolean().optional()
+  })
+  .passthrough();
 
 export default createHandler(
   {
@@ -28,17 +26,23 @@ export default createHandler(
     }
 
     const body = await readJsonBody<Record<string, unknown>>(req);
-    const simulacaoId = extractSimulacaoId(body);
 
+    const parsed = BodySchema.safeParse(body);
+    if (!parsed.success) {
+      sendValidationError(res, parsed.error.flatten(), correlationId);
+      return;
+    }
+
+    const simulacaoId = parsed.data.simulacaoId.toString().trim();
     if (!simulacaoId) {
-      res.status(400).json({ message: "Dados invalidos. Informe o identificador da simulacao.", correlationId });
+      sendValidationError(res, { message: "Identificador da simulacao obrigatorio." }, correlationId);
       return;
     }
 
     const payload = {
-      confirmacao: body.confirmacao ?? true,
-      ...body,
-      simulacaoId
+      ...parsed.data,
+      simulacaoId,
+      confirmacao: parsed.data.confirmacao ?? true
     };
 
     try {
@@ -54,15 +58,27 @@ export default createHandler(
       const isJson = contentType.includes("application/json");
       const parsed = isJson && text ? JSON.parse(text) : isJson ? {} : text;
 
+      if (response.status === 409) {
+        res.status(409).json({
+          message: "Conflito: titulo ja emitido.",
+          details: parsed,
+          status: 409,
+          correlationId
+        });
+        return;
+      }
+
       if (!response.ok) {
         sendProdataError(res, response.status, parsed, correlationId);
         return;
       }
 
-      res.status(200).json(parsed);
+      res.status(201).json({
+        correlationId,
+        resultado: parsed
+      });
     } catch (error) {
       sendProdataError(res, 502, (error as Error).message, correlationId);
     }
   }
 );
-

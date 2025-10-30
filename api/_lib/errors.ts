@@ -22,3 +22,11 @@ export function sendProdataError(res: VercelResponse, status: number, details: u
   });
 }
 
+export function sendValidationError(res: VercelResponse, issues: unknown, correlationId: string) {
+  res.status(422).json({
+    message: "Dados invalidos. Revise os campos.",
+    issues,
+    status: 422,
+    correlationId
+  });
+}

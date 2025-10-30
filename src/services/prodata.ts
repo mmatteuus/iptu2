@@ -6,47 +6,46 @@ export type Identificacao = {
   ccp?: string;
 };
 
-export type DebitoResumo = {
-  id: string;
-  descricao?: string;
-  situacao?: string;
-  vencimento?: string;
-  valorPrincipal?: number;
-  valorAtualizado?: number;
-};
-
-export type DebitoImovel = {
-  proprietario?: string;
-  documento?: string;
+export type ImovelResumo = {
   inscricao?: string;
   cci?: string;
   ccp?: string;
   endereco?: string;
-  debitos: DebitoResumo[];
-  totais: {
-    quantidade: number;
-    valorTotal: number;
+  situacao?: string;
+};
+
+export type DebitoItem = {
+  id: string;
+  origem?: string;
+  exercicio?: number;
+  principal: number;
+  multa: number;
+  juros: number;
+  outros: number;
+  total: number;
+};
+
+export type DebitosDetalhe = {
+  proprietario?: string;
+  imovel: {
+    inscricao?: string;
+    endereco?: string;
+    cci?: string;
+    ccp?: string;
+    situacao?: string;
   };
-  raw: unknown;
-};
-
-export type DebitosResponse = {
+  itens: DebitoItem[];
+  totais: {
+    principal: number;
+    acessorios: number;
+    total: number;
+  };
   correlationId?: string;
-  resultados: DebitoImovel[];
-  original: unknown;
-};
-
-export type DebitosParams = {
-  cpf?: string;
-  cnpj?: string;
-  inscricao?: string;
-  cci?: string;
-  ccp?: string;
 };
 
 export type SimulacaoPayload = {
   identificacao: Identificacao;
-  itensSelecionados: Array<{ id: string; valor?: number }>;
+  itensSelecionados: Array<{ id: string }>;
   opcoes: {
     parcelas: number;
     vencimento: string;
@@ -94,8 +93,7 @@ export type EmissaoResult = {
 function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
-    const normalized = value.replace(/\./g, "").replace(",", ".");
-    const parsed = Number.parseFloat(normalized);
+    const parsed = Number.parseFloat(value.replace(/\./g, "").replace(",", "."));
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
@@ -107,35 +105,29 @@ function toStringValue(value: unknown) {
   return "";
 }
 
-function pickFromKeys<T>(
-  record: Record<string, unknown>,
-  keys: string[],
-  transform: (value: unknown) => T,
-  fallback: T
-) {
+function pickFromRecord(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     if (key in record) {
-      const value = transform(record[key]);
-      if (value !== fallback) return value;
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number") return value.toString();
     }
   }
-  return fallback;
+  return undefined;
 }
 
-function parseResponsePayload(response: Response) {
-  return response
-    .text()
-    .then((text) => {
-      const isJson = response.headers.get("content-type")?.includes("application/json");
-      if (!isJson) return text;
-      if (!text) return {};
-      try {
-        return JSON.parse(text) as unknown;
-      } catch {
-        return text;
-      }
-    })
-    .catch(() => undefined);
+async function parseResponsePayload(response: Response) {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return text;
+  }
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    return text;
+  }
 }
 
 function buildError(message: string, payload: unknown, status: number) {
@@ -143,65 +135,6 @@ function buildError(message: string, payload: unknown, status: number) {
   (error as Error & { status?: number; details?: unknown }).status = status;
   (error as Error & { status?: number; details?: unknown }).details = payload;
   return error;
-}
-
-function extractParcelas(payload: unknown): Parcela[] {
-  const root =
-    payload && typeof payload === "object"
-      ? ((payload as Record<string, unknown>).resultado as unknown) ?? payload
-      : payload;
-
-  const items: unknown[] = Array.isArray(root)
-    ? root
-    : root && typeof root === "object"
-      ? Array.isArray((root as Record<string, unknown>).parcelas)
-        ? ((root as Record<string, unknown>).parcelas as unknown[])
-        : Array.isArray((root as Record<string, unknown>).parcelasSimuladas)
-          ? ((root as Record<string, unknown>).parcelasSimuladas as unknown[])
-          : Array.isArray((root as Record<string, unknown>).listaParcelas)
-            ? ((root as Record<string, unknown>).listaParcelas as unknown[])
-            : []
-      : [];
-
-  return items
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-    .map((item) => {
-      const record = item as Record<string, unknown>;
-      return {
-        parcela: pickFromKeys(record, ["parcela", "numeroParcela", "numero"], (value) => toNumber(value) ?? 0, 0),
-        vencimento: pickFromKeys(record, ["vencimento", "dataVencimento"], toStringValue, ""),
-        valorDivida: pickFromKeys(record, ["valorDivida", "valorPrincipal"], (value) => toNumber(value) ?? 0, 0),
-        valorJuros: pickFromKeys(record, ["valorJuros"], (value) => toNumber(value) ?? 0, 0),
-        valorMulta: pickFromKeys(record, ["valorMulta"], (value) => toNumber(value) ?? 0, 0),
-        valorCorrecao: pickFromKeys(
-          record,
-          ["valorCorrecao", "valorCorrecaoMonetaria"],
-          (value) => toNumber(value) ?? 0,
-          0
-        ),
-        valorExpediente: pickFromKeys(record, ["valorExpediente", "valorTaxa"], (value) => toNumber(value) ?? 0, 0),
-        valorSaldoDevedor: pickFromKeys(record, ["valorSaldoDevedor", "saldoDevedor"], (value) => toNumber(value) ?? 0, 0)
-      };
-    });
-}
-
-function extractSimulacaoId(payload: unknown) {
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    const value =
-      record.simulacaoId ?? record.idSimulacao ?? record.id ?? record.identificadorSimulacao ?? record.simulacao;
-    const text = toStringValue(value).trim();
-    return text.length ? text : undefined;
-  }
-  return undefined;
-}
-
-function unwrapResultado(payload: unknown) {
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    if ("resultado" in record) return record.resultado;
-  }
-  return payload;
 }
 
 function collectCorrelationId(payload: unknown) {
@@ -212,13 +145,40 @@ function collectCorrelationId(payload: unknown) {
   return undefined;
 }
 
-export async function consultarDebitos(params: DebitosParams): Promise<DebitosResponse> {
+function unwrap(payload: unknown, key: string) {
+  if (payload && typeof payload === "object" && key in (payload as Record<string, unknown>)) {
+    return (payload as Record<string, unknown>)[key];
+  }
+  return payload;
+}
+
+export async function buscarImoveisPorDocumento(cpfCnpj: string): Promise<ImovelResumo[]> {
+  const digits = cpfCnpj.replace(/\D/g, "");
+  const searchParam = digits.length === 14 ? `cnpj=${digits}` : `cpf=${digits}`;
+
+  const response = await fetch(`/api/imoveis?${searchParam}`, { method: "GET" });
+  const data = await parseResponsePayload(response);
+
+  if (!response.ok) {
+    const message =
+      (data && typeof data === "object" && "message" in data ? (data as Record<string, unknown>).message : undefined) ??
+      `Falha na consulta de imoveis (${response.status})`;
+    throw buildError(toStringValue(message) || "Falha na consulta de imoveis", data, response.status);
+  }
+
+  const imoveis =
+    data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).imoveis)
+      ? ((data as Record<string, unknown>).imoveis as ImovelResumo[])
+      : [];
+
+  return imoveis;
+}
+
+export async function buscarDebitos(params: { inscricao?: string; cci?: string; ccp?: string }): Promise<DebitosDetalhe> {
   const query = new URLSearchParams();
   if (params.inscricao) query.set("inscricao", params.inscricao);
   if (params.cci) query.set("cci", params.cci);
   if (params.ccp) query.set("ccp", params.ccp);
-  if (params.cpf) query.set("cpf", params.cpf);
-  if (params.cnpj) query.set("cnpj", params.cnpj);
 
   const response = await fetch(`/api/debitos?${query.toString()}`, { method: "GET" });
   const data = await parseResponsePayload(response);
@@ -230,60 +190,65 @@ export async function consultarDebitos(params: DebitosParams): Promise<DebitosRe
     throw buildError(toStringValue(message) || "Falha na consulta de debitos", data, response.status);
   }
 
-  const correlationId = collectCorrelationId(data);
-  const resultadosRaw =
-    data && typeof data === "object" && "resultados" in data ? ((data as Record<string, unknown>).resultados as unknown[]) : [];
+  const resultado = unwrap(data, "resultado");
 
-  const resultados: DebitoImovel[] = Array.isArray(resultadosRaw)
-    ? resultadosRaw.map((entry) => {
-        if (!entry || typeof entry !== "object") {
+  if (resultado && typeof resultado === "object") {
+    const record = resultado as Record<string, unknown>;
+    const itens = Array.isArray(record.itens)
+      ? (record.itens as Array<Record<string, unknown>>).map((item) => {
+          const principal = toNumber(item.principal ?? item.valorPrincipal ?? item.valorOriginal) ?? 0;
+          const multa = toNumber(item.multa ?? item.valorMulta) ?? 0;
+          const juros = toNumber(item.juros ?? item.valorJuros) ?? 0;
+          const correcao = toNumber(item.valorCorrecao ?? item.correcao ?? item.valorAtualizacao) ?? 0;
+          const honorarios = toNumber(item.valorHonorarios ?? item.honorarios) ?? 0;
+          const custas = toNumber(item.valorCustas ?? item.custas) ?? 0;
+          const outrosInformados = toNumber(item.outros ?? item.valorOutros) ?? 0;
+          const outros = (outrosInformados ?? 0) + correcao + honorarios + custas;
+          const totalInformado = toNumber(item.total ?? item.valorTotal ?? item.valorAtualizado);
+          const total = totalInformado ?? principal + multa + juros + outros;
+
           return {
-            debitos: [],
-            totais: { quantidade: 0, valorTotal: 0 },
-            raw: entry
-          };
-        }
-        const record = entry as Record<string, unknown>;
-        const debitosRaw = Array.isArray(record.debitos) ? (record.debitos as DebitoResumo[]) : [];
+            id: toStringValue(item.id ?? item.codigo ?? item.numeroDocumento ?? nanoid(8)).trim() || nanoid(8),
+            origem: toStringValue(item.origem ?? item.tipo ?? item.natureza).trim() || undefined,
+            exercicio: toNumber(item.exercicio ?? item.ano ?? item.anoExercicio) ?? undefined,
+            principal: Number(principal.toFixed(2)) ?? 0,
+            multa: Number(multa.toFixed(2)) ?? 0,
+            juros: Number(juros.toFixed(2)) ?? 0,
+            outros: Number(outros.toFixed(2)) ?? 0,
+            total: Number(total.toFixed(2))
+          } as DebitoItem;
+        })
+      : [];
 
-        const debitos = debitosRaw.map((item) => ({
-          id: item.id ?? nanoid(8),
-          descricao: item.descricao,
-          situacao: item.situacao,
-          vencimento: item.vencimento,
-          valorPrincipal: item.valorPrincipal,
-          valorAtualizado: item.valorAtualizado
-        }));
+    const principalTotal = toNumber((record.totais as Record<string, unknown>)?.principal) ?? itens.reduce((acc, item) => acc + item.principal, 0);
+    const acessoriosTotal = toNumber((record.totais as Record<string, unknown>)?.acessorios) ?? itens.reduce((acc, item) => acc + (item.total - item.principal), 0);
+    const totalGeral = toNumber((record.totais as Record<string, unknown>)?.total) ?? itens.reduce((acc, item) => acc + item.total, 0);
 
-        const total =
-          typeof record.totais === "object" && record.totais !== null
-            ? Number((record.totais as Record<string, unknown>).valorTotal) || 0
-            : debitos.reduce((sum, debito) => sum + (debito.valorAtualizado ?? debito.valorPrincipal ?? 0), 0);
-
-        return {
-          proprietario: typeof record.proprietario === "string" ? record.proprietario : undefined,
-          documento: typeof record.documento === "string" ? record.documento : undefined,
-          inscricao: typeof record.inscricao === "string" ? record.inscricao : undefined,
-          cci: typeof record.cci === "string" ? record.cci : undefined,
-          ccp: typeof record.ccp === "string" ? record.ccp : undefined,
-          endereco: typeof record.endereco === "string" ? record.endereco : undefined,
-          debitos,
-          totais: {
-            quantidade:
-              typeof record.totais === "object" && record.totais !== null
-                ? Number((record.totais as Record<string, unknown>).quantidade) || debitos.length
-                : debitos.length,
-            valorTotal: Number(total || 0)
-          },
-          raw: record
-        };
-      })
-    : [];
+    return {
+      proprietario: toStringValue(record.proprietario ?? "").trim() || undefined,
+      imovel: {
+        inscricao: toStringValue((record.imovel as Record<string, unknown>)?.inscricao ?? record.inscricao ?? "").trim() || undefined,
+        endereco: toStringValue((record.imovel as Record<string, unknown>)?.endereco ?? record.endereco ?? "").trim() || undefined,
+        cci: toStringValue((record.imovel as Record<string, unknown>)?.cci ?? record.cci ?? "").trim() || undefined,
+        ccp: toStringValue((record.imovel as Record<string, unknown>)?.ccp ?? record.ccp ?? "").trim() || undefined,
+        situacao: toStringValue((record.imovel as Record<string, unknown>)?.situacao ?? record.situacao ?? "").trim() || undefined
+      },
+      itens,
+      totais: {
+        principal: Number(principalTotal.toFixed(2)),
+        acessorios: Number(acessoriosTotal.toFixed(2)),
+        total: Number(totalGeral.toFixed(2))
+      },
+      correlationId: collectCorrelationId(data)
+    };
+  }
 
   return {
-    correlationId,
-    resultados,
-    original: data
+    proprietario: undefined,
+    imovel: {},
+    itens: [],
+    totais: { principal: 0, acessorios: 0, total: 0 },
+    correlationId: collectCorrelationId(data)
   };
 }
 
@@ -307,20 +272,58 @@ export async function simular(payload: SimulacaoPayload): Promise<SimulacaoResul
     const message =
       (data as Record<string, unknown>).message?.toString() ??
       "Simulacao em modo demonstracao. Configure credenciais para ativar o modo real.";
-    return { parcelas: [], simulacaoId: undefined, message, isMock: true, correlationId: collectCorrelationId(data), raw: data };
+    return {
+      parcelas: [],
+      simulacaoId: undefined,
+      message,
+      isMock: true,
+      correlationId: collectCorrelationId(data),
+      raw: data
+    };
   }
 
-  const resultado = unwrapResultado(data);
-  const parcelas = extractParcelas(resultado);
-  const simulacaoId = extractSimulacaoId(resultado);
+  const resultado = unwrap(data, "resultado");
+  const parcelasPayload = unwrap(resultado, "parcelas");
+  const parcelas: Parcela[] = Array.isArray(parcelasPayload)
+    ? (parcelasPayload as unknown[]).map((item) => {
+        if (!item || typeof item !== "object") {
+          return {
+            parcela: 0,
+            vencimento: "",
+            valorDivida: 0,
+            valorJuros: 0,
+            valorMulta: 0,
+            valorCorrecao: 0,
+            valorExpediente: 0
+          };
+        }
+        const record = item as Record<string, unknown>;
+        return {
+          parcela: Number(record.parcela ?? record.numero ?? record.numeroParcela ?? 0),
+          vencimento: toStringValue(record.vencimento ?? record.dataVencimento ?? ""),
+          valorDivida: toNumber(record.valorDivida ?? record.valorPrincipal ?? 0) ?? 0,
+          valorJuros: toNumber(record.valorJuros ?? 0) ?? 0,
+          valorMulta: toNumber(record.valorMulta ?? 0) ?? 0,
+          valorCorrecao: toNumber(record.valorCorrecao ?? record.valorCorrecaoMonetaria ?? 0) ?? 0,
+          valorExpediente: toNumber(record.valorExpediente ?? record.valorTaxa ?? 0) ?? 0,
+          valorSaldoDevedor: toNumber(record.valorSaldoDevedor ?? record.saldoDevedor ?? undefined)
+        };
+      })
+    : [];
+
+  const simulacaoId =
+    resultado && typeof resultado === "object"
+      ? pickFromRecord(resultado as Record<string, unknown>, ["simulacaoId", "idSimulacao", "id"])
+      : undefined;
+
   const message =
-    resultado && typeof resultado === "object" && "message" in resultado
+    resultado && typeof resultado === "object" && "message" in (resultado as Record<string, unknown>)
       ? toStringValue((resultado as Record<string, unknown>).message)
       : undefined;
 
   return {
     parcelas,
-    simulacaoId,
+    simulacaoId: simulacaoId?.trim() || undefined,
     message: message?.trim() || undefined,
     isMock: false,
     correlationId: collectCorrelationId(data),
@@ -344,7 +347,7 @@ export async function emitirSimulacao(payload: EmitirPayload): Promise<EmissaoRe
     throw buildError(toStringValue(message) || "Falha na emissao", data, response.status);
   }
 
-  const resultado = unwrapResultado(data);
+  const resultado = unwrap(data, "resultado");
   const record = resultado && typeof resultado === "object" ? (resultado as Record<string, unknown>) : {};
 
   const numeroTitulo = toStringValue(

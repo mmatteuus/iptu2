@@ -1,170 +1,175 @@
 {
-  "info": {
-    "name": "IPTU2 Prodata",
-    "_postman_id": "b2bbd760-d1ad-4ecf-a6e8-1234567890ab",
-    "description": "Colecao para testar autenticacao, consulta de dados imobiliarios, debitos, simulacao e emissao na API Prodata.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Autenticacao",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"usuario\": \"{{user}}\",\n  \"senha\": \"{{password}}\"\n}"
-        },
-        "url": {
-          "raw": "{{apiBase}}/autenticacao",
-          "host": [
-            "{{apiBase}}"
-          ],
-          "path": [
-            "autenticacao"
-          ]
-        }
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "if (pm.response.code === 200) {",
-              "  const json = pm.response.json();",
-              "  const token = json.token || json.accessToken || json.bearer;",
-              "  if (token) {",
-              "    pm.environment.set(\"token\", token);",
-              "  }",
-              "}"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "Obter dados imobiliarios",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{token}}"
-          }
-        ],
-        "url": {
-          "raw": "{{apiBase}}/arrecadacao/obterDadosImobiliario?cpf={{cpf}}",
-          "host": [
-            "{{apiBase}}"
-          ],
-          "path": [
-            "arrecadacao",
-            "obterDadosImobiliario"
-          ],
-          "query": [
-            {
-              "key": "cpf",
-              "value": "{{cpf}}",
-              "description": "Informe apenas numeros. Use cnpj={{cnpj}} quando aplicavel."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Consultar debitos",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{token}}"
-          }
-        ],
-        "url": {
-          "raw": "{{apiBase}}/arrecadacao/debitos?inscricaoImobiliaria={{inscricaoImobiliaria}}",
-          "host": [
-            "{{apiBase}}"
-          ],
-          "path": [
-            "arrecadacao",
-            "debitos"
-          ],
-          "query": [
-            {
-              "key": "inscricaoImobiliaria",
-              "value": "{{inscricaoImobiliaria}}",
-              "description": "Opcional: use cci={{cci}} ou ccp={{ccp}} conforme necessidade."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Simular parcelamento",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{token}}"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"identificacao\": {\n    \"inscricaoImobiliaria\": \"{{inscricaoImobiliaria}}\"\n  },\n  \"itensSelecionados\": [\n    {\n      \"id\": \"{{itemId}}\",\n      \"valor\": {{valorItem}}\n    }\n  ],\n  \"opcoes\": {\n    \"parcelas\": {{parcelas}},\n    \"vencimento\": \"{{vencimento}}\"\n  }\n}"
-        },
-        "url": {
-          "raw": "{{apiBase}}/arrecadacao/simulacao",
-          "host": [
-            "{{apiBase}}"
-          ],
-          "path": [
-            "arrecadacao",
-            "simulacao"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Emitir titulo",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{token}}"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"simulacaoId\": \"{{simulacaoId}}\",\n  \"confirmacao\": true\n}"
-        },
-        "url": {
-          "raw": "{{apiBase}}/arrecadacao/emitir",
-          "host": [
-            "{{apiBase}}"
-          ],
-          "path": [
-            "arrecadacao",
-            "emitir"
-          ]
-        }
-      }
-    }
-  ]
+    "info":  {
+                 "name":  "IPTU2 Prodata",
+                 "_postman_id":  "b2bbd760-d1ad-4ecf-a6e8-1234567890ab",
+                 "description":  "Colecao para testar autenticacao, consulta de dados imobiliarios, debitos, simulacao e emissao na API Prodata.",
+                 "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+             },
+    "item":  [
+                 {
+                     "name":  "Autenticacao",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"usuario\": \"{{user}}\",\n  \"senha\": \"{{password}}\"\n}"
+                                              },
+                                     "url":  {
+                                                 "raw":  "{{apiBase}}/autenticacao",
+                                                 "host":  [
+                                                              "{{apiBase}}"
+                                                          ],
+                                                 "path":  [
+                                                              "autenticacao"
+                                                          ]
+                                             }
+                                 },
+                     "event":  [
+                                   {
+                                       "listen":  "test",
+                                       "script":  {
+                                                      "type":  "text/javascript",
+                                                      "exec":  [
+                                                                   "if (pm.response.code === 200) {",
+                                                                   "  const json = pm.response.json();",
+                                                                   "  const token = json.token || json.accessToken || json.bearer;",
+                                                                   "  if (token) {",
+                                                                   "    pm.environment.set(\"token\", token);",
+                                                                   "  }",
+                                                                   "}"
+                                                               ]
+                                                  }
+                                   }
+                               ]
+                 },
+                 {
+                     "name":  "Imoveis por CPF/CNPJ",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  {
+                                                 "raw":  "{{apiBase}}/cadastro/imoveis?cpf={{cpf}}",
+                                                 "host":  [
+                                                              "{{apiBase}}"
+                                                          ],
+                                                 "path":  [
+                                                              "cadastro",
+                                                              "imoveis"
+                                                          ],
+                                                 "query":  [
+                                                               {
+                                                                   "key":  "cpf",
+                                                                   "description":  "CPF com 11 digitos (somente numeros).",
+                                                                   "value":  "{{cpf}}"
+                                                               },
+                                                               {
+                                                                   "key":  "cnpj",
+                                                                   "description":  "Opcional: informe CNPJ com 14 digitos.",
+                                                                   "value":  "{{cnpj}}"
+                                                               }
+                                                           ]
+                                             }
+                                 }
+                 },
+                 {
+                     "name":  "Consultar debitos",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  {
+                                                 "raw":  "{{apiBase}}/arrecadacao/debitos?inscricaoImobiliaria={{inscricaoImobiliaria}}",
+                                                 "host":  [
+                                                              "{{apiBase}}"
+                                                          ],
+                                                 "path":  [
+                                                              "arrecadacao",
+                                                              "debitos"
+                                                          ],
+                                                 "query":  [
+                                                               {
+                                                                   "key":  "inscricaoImobiliaria",
+                                                                   "description":  "Informe apenas um identificador por vez (inscricao, CCI ou CCP).",
+                                                                   "value":  "{{inscricaoImobiliaria}}"
+                                                               }
+                                                           ]
+                                             }
+                                 }
+                 },
+                 {
+                     "name":  "Simular parcelamento",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"identificacao\": {\n    \"inscricaoImobiliaria\": \"{{inscricaoImobiliaria}}\"\n  },\n  \"itensSelecionados\": [\n    {\n      \"id\": \"{{itemId}}\"\n    }\n  ],\n  \"opcoes\": {\n    \"parcelas\": {{parcelas}},\n    \"vencimento\": \"{{vencimento}}\"\n  }\n}"
+                                              },
+                                     "url":  {
+                                                 "raw":  "{{apiBase}}/arrecadacao/simulacao",
+                                                 "host":  [
+                                                              "{{apiBase}}"
+                                                          ],
+                                                 "path":  [
+                                                              "arrecadacao",
+                                                              "simulacao"
+                                                          ]
+                                             }
+                                 }
+                 },
+                 {
+                     "name":  "Emitir titulo",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"simulacaoId\": \"{{simulacaoId}}\",\n  \"confirmacao\": true\n}"
+                                              },
+                                     "url":  {
+                                                 "raw":  "{{apiBase}}/arrecadacao/emitir",
+                                                 "host":  [
+                                                              "{{apiBase}}"
+                                                          ],
+                                                 "path":  [
+                                                              "arrecadacao",
+                                                              "emitir"
+                                                          ]
+                                             }
+                                 }
+                 }
+             ]
 }

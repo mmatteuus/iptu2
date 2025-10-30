@@ -1,12 +1,12 @@
 # IPTU2 - Prefeitura de Araguaina
 
-Aplicacao web que integra o front-end React + Vite com a API oficial da Prodata (`sigintegracaorest`) para consulta de debitos imobiliarios, simulacao de parcelamentos e emissao de DUAM/boleto.
+Aplicacao web que integra o front-end React + Vite com a API oficial da Prodata (`sigintegracaorest`) para consulta de imoveis e debitos, simulacao de parcelamentos e emissao de DUAM/boleto.
 
 ## Stack
 
 - Node.js >= 18 (fetch global nativo)
 - Vite + React 18 + TypeScript
-- Funcoes serverless em `/api` (Vercel ou compatível)
+- Funcoes serverless em `/api`
 - Zod para validacao runtime
 - ESLint + Prettier + Husky + lint-staged
 
@@ -14,18 +14,19 @@ Aplicacao web que integra o front-end React + Vite com a API oficial da Prodata 
 
 ```
 api/
- ├─ _auth.ts              # Cache de token Bearer (renova T-60 s)
- ├─ _lib/                 # Helpers HTTP, rate limit, logs, métricas
- ├─ debitos.ts            # GET /api/debitos
- ├─ emitir.ts             # POST /api/emitir
- └─ simulacao.ts          # POST /api/simulacao
+ +- _auth.ts              # Cache de token Bearer (renova T-60 s)
+ +- _lib/                 # Helpers HTTP, rate limit, logs, metricas
+ +- debitos.ts            # GET /api/debitos
+ +- emitir.ts             # POST /api/emitir
+ +- imoveis.ts            # GET /api/imoveis
+ +- simulacao.ts          # POST /api/simulacao
 postman/                  # Colecao + ambiente para testes manuais
 scripts/healthcheck.mjs   # Healthcheck pos-deploy
 src/
- ├─ context/              # Estado global (identificacao + debitos)
- ├─ pages/                # /pesquisa e /simulacao
- ├─ services/prodata.ts   # Clientes fetch para os proxies
- └─ utils/                # Formatadores (moeda, data, documento)
+ +- context/              # Estado global (imoveis, debitos, simulacao)
+ +- pages/                # /pesquisa e /simulacao
+ +- services/prodata.ts   # Clientes fetch para os proxies
+ +- utils/                # Formatadores (moeda, data, documento)
 ```
 
 ## Variaveis de ambiente
@@ -45,8 +46,10 @@ PRODATA_SIG_ORIGIN=
 PRODATA_SIG_MODULO=
 
 # Ajustes de rotas (caso o Swagger utilize nomes diferentes)
+# PRODATA_API_IMOVEIS_PATH=/cadastro/imoveis
 # PRODATA_API_DEBITOS_PATH=/arrecadacao/debitos
 # PRODATA_API_SIMULACAO_PATH=/arrecadacao/simulacao
+# PRODATA_API_SIMULACAO_FALLBACK_PATH=/arrecadacao/simulacaoRepactuacao
 # PRODATA_API_EMITIR_PATH=/arrecadacao/emitir
 
 # Seguranca
@@ -61,82 +64,80 @@ VITE_WHATSAPP_PREFEITURA_URL=https://wa.me/5563...
 VITE_WHATSAPP_ASSINATURA_URL=https://wa.me/5563...
 ```
 
-> Nunca commite `.env` com credenciais. Utilize Secret Manager do provedor. Exemplo completo em `.env.example`.
+> Nunca commite `.env` com credenciais. Utilize o Secret Manager do provedor. Exemplo completo em `.env.example`.
 
 ## Proxies `/api`
 
 | Rota | Metodo | Validacao | Descricao |
 |------|--------|-----------|-----------|
-| `/api/debitos` | GET | Zod (cpf/cnpj/inscricao/cci/ccp) | Consulta debitos na Prodata e normaliza dados de proprietario, endereco, itens e totais. Retorna `{ correlationId, resultados[], original }`. 422 quando parametros invalidos; 503 se credenciais ausentes. |
-| `/api/simulacao` | POST | Zod (identificacao + itensSelecionados + opcoes) | Dispara a simulacao oficial (`/arrecadacao/simulacao` ou fallback). Renova token Bearer automaticamente e devolve `{ correlationId, resultado }`. Sem credenciais responde `200` com `modo: "mock"`. |
-| `/api/emitir` | POST | Zod (simulacaoId obrigatorio, confirmacao default true) | Efetiva a emissao do DUAM/boleto. Sucesso responde `201` com `{ correlationId, resultado }`. Conflito (titulo existente) responde `409`. |
+| `/api/imoveis` | GET | Zod (CPF ou CNPJ) | Consulta o cadastro oficial e retorna uma lista normalizada de imoveis (inscricao, CCI, CCP, endereco, situacao). |
+| `/api/debitos` | GET | Zod (apenas um identificador: inscricao **ou** CCI **ou** CCP) | Consulta debitos do imovel e retorna `{ proprietario, imovel, itens[], totais }`. |
+| `/api/simulacao` | POST | Zod (identificacao + itensSelecionados + opcoes) | Dispara a simulacao oficial. Retorna `modo: "mock"` quando faltarem credenciais. |
+| `/api/emitir` | POST | Zod (simulacaoId obrigatorio) | Efetiva a emissao do DUAM/boleto. Responde `201` em sucesso e `409` para titulo ja emitido. |
 
-Caracteristicas comuns:
+Todos os handlers compartilham:
 
-- Autenticacao dinamica com cache em memoria e retry automatico em 401.
-- Rate limit por IP (60 req/min) e por rota critica (10 req/min) configuravel.
-- CORS restrito (`API_ALLOWED_ORIGINS`), HTTPS em producao.
-- `x-correlation-id` aceito e ecoado.
-- Logs estruturados em JSON com mascaramento de CPF/CNPJ/tokens.
-- Metricas em memoria (contagem, taxa de erro, P95) com alerta simples em log.
+- Autenticacao dinamica com cache local e retry automatico em 401.
+- Rate limit (60 req/min por IP + 10 req/min para rotas criticas) configuravel via env.
+- CORS restrito (`API_ALLOWED_ORIGINS`) e obrigatoriedade de HTTPS em producao.
+- Logs estruturados em JSON com mascaramento de CPF/CNPJ/tokens e `x-correlation-id` propagado.
+- Metricas em memoria (contagem, taxa de erro, P95) com alerta simples via log.
 
-## Fluxos do front
+## Fluxo do front-end
 
-### `/pesquisa`
+### Tela `/pesquisa`
 
-1. Usuario informa CPF/CNPJ e/ou inscricao/CCI/CCP.
-2. Front chama `GET /api/debitos`.
-3. Exibe proprietario, endereco e tabela de debitos com checkbox.
-4. Botao “Ir para simulacao” habilita quando >= 1 debito esta selecionado.
-5. Erros tratados com mensagens claras (422, 404, 429, 5xx).
+1. Usuario informa CPF ou CNPJ.
+2. Front chama `GET /api/imoveis` e exibe lista normalizada.
+3. Ao selecionar um imovel, o front chama `GET /api/debitos` (inscricao/CCI/CCP) e mostra a tabela com checkbox, totais e CTA "Ir para simulacao".
+4. Botao habilitado apenas quando >= 1 debito esta selecionado. Mensagens claras para 422/404/429/5xx.
 
-### `/simulacao`
+### Tela `/simulacao`
 
-1. Lista debitos selecionados (com opcao de remover).
-2. Usuario ajusta identificacao (inscricao/CCI/CCP), parcelas (1..10) e vencimento.
-3. Envia `POST /api/simulacao` com `{ identificacao, itensSelecionados, opcoes }`.
-4. Exibe ate 48 parcelas, exporta CSV/PDF e calcula total.
-5. “Aceitar simulacao” aciona `POST /api/emitir`, exibindo numero do titulo, linha digitavel, codigo de barras, link do boleto e vencimento.
-6. Mensagens padrao para 401/409/422/429/5xx.
+1. Mostra os debitos selecionados, proprietario, endereco e totais.
+2. Usuario ajusta inscricao/CCI/CCP, parcelas (1..10) e vencimento.
+3. `POST /api/simulacao` retorna as parcelas; UI exibe ate 48 linhas com exportacao CSV/PDF.
+4. "Aceitar simulacao" chama `POST /api/emitir` e exibe numero do titulo, vencimento, valor total, linha digitavel, codigo de barras e link do boleto.
+5. Tratamento consistente de 401/409/422/429/5xx.
 
 ## Healthcheck
 
 `npm run healthcheck` executa:
 
-1. `POST /api/simulacao` (payload ficticio).  
-   - `200` + `modo: "mock"` => credenciais Prodata nao configuradas.  
+1. `POST /api/simulacao` com payload ficticio.
+   - `200` + `modo: "mock"` => credenciais Prodata ausentes.
    - `>=500` => falha (exit code 1).
-2. `GET /api/debitos?inscricao=000000000000`.  
-   - `200` => rota operacional.  
-   - `422/400` => validacao (esperado sem dados reais).  
-   - `501/503` => indica falta de credenciais opcionais/obrigatorias.
+2. `GET /api/debitos?inscricao=000000000000`.
+   - `200` => rota operacional.
+   - `422/400` => validacao (esperado sem dados reais).
+   - `501/503` => credenciais faltantes.
 
 ## Postman / Insomnia
 
-Colecao e ambiente em `postman/` com os 5 cenarios basicos:
+Colecao em `postman/` com os cinco passos can�nicos:
 
-1. Autenticacao (`POST /autenticacao`) – pre-request script salva `{{token}}`.
-2. Debitos (`GET /arrecadacao/debitos`).
-3. Simulacao (`POST /arrecadacao/simulacao`).
-4. Emissao (`POST /arrecadacao/emitir`).
-5. Segunda via (placeholder para futuras integracoes).
+1. `POST /autenticacao` � pre-request script salva `token`.
+2. `GET /imoveis?cpf=...` (ou `cnpj`).
+3. `GET /debitos?inscricao=...` (ou `cci`/`ccp`).
+4. `POST /simulacao` � envia identificacao, itens e opcoes.
+5. `POST /emitir` � confirma a simulacao.
 
-Ajuste as variaveis antes de executar. Nao compartilhe tokens reais.
+Ajuste as variaveis de ambiente antes de executar. Nunca compartilhe tokens reais.
 
 ## Seguranca e LGPD
 
 - Apenas HTTPS em producao.
-- CORS restrito a dominios autorizados.
-- Tokens/senhas mascarados nos logs; sem armazenamento de payloads sensiveis.
+- CORS restrito aos dominios oficiais.
+- Logs mascarados sem PII e com retencao minima.
 - Rate limiting ativo para evitar abuso.
-- Siga as orientacoes publicas da ANPD/CGU para sensibilizacao e tratamento de dados pessoais.
+- Siga as orientacoes publicas da ANPD/CGU para tratamento de dados pessoais.
 
 ## Scripts
 
-- `npm run dev` – servidor Vite.
-- `npm run build` – `tsc -b` + `vite build`.
-- `npm run lint` – ESLint em `src`.
-- `npm run healthcheck` – valida deploy (defina `HEALTHCHECK_BASE_URL`).
+- `npm run dev`
+- `npm run build`
+- `npm run lint`
+- `npm run healthcheck`
 
 ## Como rodar
 
@@ -147,10 +148,9 @@ Ajuste as variaveis antes de executar. Nao compartilhe tokens reais.
 
 ## Checklist de validacao manual
 
-- Consultar debitos por CPF/CNPJ/inscricao/CCI/CCP.
-- Selecionar itens e gerar simulacao (parcelas 1..10).
-- Emitir DUAM e verificar retorno (linha digitavel, link, vencimento).
-- Testar expiracao de token (rotas se auto-reautenticam).
-- Verificar conflitos (emissao duplicada => 409).
-- Monitorar logs mascarados e metricas no ambiente.
-
+- CPF/CNPJ -> `/api/imoveis` retorna lista normalizada.
+- Selecionar imovel -> `/api/debitos` lista itens + totais.
+- Selecionar itens -> `/simulacao` envia simulacao (1..10 parcelas) e recebe DUAM.
+- Emissao retorna linha digitavel/URL e trata 409 para titulo duplicado.
+- Token Bearer renova automaticamente em todas as rotas.
+- Logs mascarados, rate limiting e CORS configurados.

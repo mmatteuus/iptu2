@@ -8,13 +8,19 @@ import {
   type ReactNode,
   type SetStateAction
 } from "react";
-import type { DebitoResumo, Identificacao } from "../services/prodata";
+import type { DebitoItem, DebitosDetalhe, Identificacao, ImovelResumo } from "../services/prodata";
 
 type AppContextValue = {
+  imoveis: ImovelResumo[];
+  setImoveis: Dispatch<SetStateAction<ImovelResumo[]>>;
+  imovelSelecionado?: ImovelResumo;
+  setImovelSelecionado: (value?: ImovelResumo) => void;
+  debitosDetalhe?: DebitosDetalhe;
+  setDebitosDetalhe: (value?: DebitosDetalhe) => void;
   identificacao?: Identificacao;
   setIdentificacao: (value?: Identificacao) => void;
-  debitosSelecionados: DebitoResumo[];
-  setDebitosSelecionados: Dispatch<SetStateAction<DebitoResumo[]>>;
+  debitosSelecionados: DebitoItem[];
+  setDebitosSelecionados: Dispatch<SetStateAction<DebitoItem[]>>;
   lastDocumento?: string;
   setLastDocumento: (value?: string) => void;
   fontScale: number;
@@ -30,8 +36,11 @@ const MAX_FONT_SCALE = 1.3;
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
+  const [imoveis, setImoveis] = useState<ImovelResumo[]>([]);
+  const [imovelSelecionado, setImovelSelecionado] = useState<ImovelResumo | undefined>(undefined);
+  const [debitosDetalhe, setDebitosDetalhe] = useState<DebitosDetalhe | undefined>(undefined);
   const [identificacao, setIdentificacao] = useState<Identificacao | undefined>(undefined);
-  const [debitosSelecionados, setDebitosSelecionados] = useState<DebitoResumo[]>([]);
+  const [debitosSelecionados, setDebitosSelecionados] = useState<DebitoItem[]>([]);
   const [lastDocumento, setLastDocumento] = useState<string | undefined>(undefined);
   const [fontScale, setFontScale] = useState<number>(1);
   const [highContrast, setHighContrast] = useState<boolean>(false);
@@ -51,6 +60,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const value = useMemo<AppContextValue>(
     () => ({
+      imoveis,
+      setImoveis,
+      imovelSelecionado,
+      setImovelSelecionado,
+      debitosDetalhe,
+      setDebitosDetalhe,
       identificacao,
       setIdentificacao,
       debitosSelecionados,
@@ -66,7 +81,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       highContrast,
       toggleHighContrast: () => setHighContrast((prev) => !prev)
     }),
-    [identificacao, debitosSelecionados, lastDocumento, fontScale, highContrast]
+    [
+      imoveis,
+      imovelSelecionado,
+      debitosDetalhe,
+      identificacao,
+      debitosSelecionados,
+      lastDocumento,
+      fontScale,
+      highContrast
+    ]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

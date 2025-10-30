@@ -4,20 +4,20 @@ import parcelamentoIcon from "../assets/icons/parcelamento.svg";
 import ExportButtons from "../components/ExportButtons";
 import InstallmentsTable from "../components/InstallmentsTable";
 import { useAppContext } from "../context/AppContext";
-import type { DebitoResumo, EmissaoResult, SimulacaoPayload, SimulacaoResult } from "../services/prodata";
+import type { DebitoItem, EmissaoResult, SimulacaoPayload, SimulacaoResult } from "../services/prodata";
 import { emitirSimulacao, simular } from "../services/prodata";
 import { formatCurrency, formatDate } from "../utils/format";
 import { calculateTotalSimulado, PARCELAS_LIMIT } from "../utils/installments";
 
 const today = new Date().toISOString().split("T")[0];
 
-function getValorDebito(item: DebitoResumo) {
-  return item.valorAtualizado ?? item.valorPrincipal ?? 0;
+function getValorDebito(item: DebitoItem) {
+  return item.total ?? item.principal ?? 0;
 }
 
 const SimulacaoPage = () => {
   const navigate = useNavigate();
-  const { identificacao, setIdentificacao, debitosSelecionados, setDebitosSelecionados } = useAppContext();
+  const { identificacao, setIdentificacao, debitosDetalhe, debitosSelecionados, setDebitosSelecionados } = useAppContext();
   const [parcelas, setParcelas] = useState<SimulacaoResult["parcelas"]>([]);
   const [parcelasQtd, setParcelasQtd] = useState<number>(debitosSelecionados.length ? Math.min(10, debitosSelecionados.length) : 3);
   const [vencimento, setVencimento] = useState<string>(today);
@@ -83,10 +83,7 @@ const SimulacaoPage = () => {
       return;
     }
 
-    const itensSelecionados = debitosSelecionados.map((item) => ({
-      id: item.id,
-      valor: getValorDebito(item)
-    }));
+    const itensSelecionados = debitosSelecionados.map((item) => ({\n      id: item.id\n    }));
 
     const payload: SimulacaoPayload = {
       identificacao: identificacaoPayload,
@@ -199,6 +196,32 @@ const SimulacaoPage = () => {
         <section className="card shadow-sm mb-4">
           <div className="card-body">
             <h2 className="h6">Debitos selecionados</h2>
+            {debitosDetalhe ? (
+              <div className="mb-3">
+                {proprietario ? (
+                  <p className="mb-1">
+                    <strong>Proprietario:</strong> {proprietario}
+                  </p>
+                ) : null}
+                <p className="mb-1">
+                  <strong>Inscricao:</strong> {imovelInfo?.inscricao ?? "-"} | CCI {imovelInfo?.cci ?? "-"} | CCP{" "}
+                  {imovelInfo?.ccp ?? "-"}
+                </p>
+                <p className="mb-1">
+                  <strong>Endereco:</strong> {imovelInfo?.endereco ?? "-"}
+                </p>
+                <p className="mb-1">
+                  <strong>Situacao:</strong> {imovelInfo?.situacao ?? "-"}
+                </p>
+                {totaisDebitos ? (
+                  <p className="mb-0">
+                    <strong>Totais:</strong>{" "}
+                    Principal {formatCurrency(totaisDebitos.principal ?? 0)} | Acessorios{" "}
+                    {formatCurrency(totaisDebitos.acessorios ?? 0)} | Total {formatCurrency(totaisDebitos.total ?? 0)}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="table-responsive">
               <table className="table table-striped align-middle">
                 <thead>
@@ -414,3 +437,8 @@ const SimulacaoPage = () => {
 };
 
 export default SimulacaoPage;
+
+
+
+
+

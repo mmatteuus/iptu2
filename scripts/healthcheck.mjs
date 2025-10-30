@@ -17,6 +17,22 @@ async function safeFetch(path, init) {
 async function main() {
   console.log(`[healthcheck] Base URL: ${baseUrl}`);
 
+  const imoveisResult = await safeFetch("/api/imoveis?cpf=00000000000", {
+    method: "GET"
+  });
+
+  if (imoveisResult.error) {
+    console.warn("[healthcheck] imoveis indisponivel:", imoveisResult.error);
+  } else if (imoveisResult.response.status === 422 || imoveisResult.response.status === 400) {
+    console.log("[healthcheck] imoveis respondeu validacao (esperado sem documento valido)");
+  } else if (imoveisResult.response.status === 200) {
+    console.log("[healthcheck] imoveis habilitado");
+  } else if (imoveisResult.response.status === 503) {
+    console.log("[healthcheck] imoveis aguardando credenciais Prodata");
+  } else {
+    console.warn("[healthcheck] imoveis retornou status", imoveisResult.response.status, imoveisResult.payload);
+  }
+
   const simResult = await safeFetch("/api/simulacao", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -69,3 +85,5 @@ async function main() {
 }
 
 main();
+
+

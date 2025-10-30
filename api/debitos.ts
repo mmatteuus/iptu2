@@ -4,83 +4,64 @@ import { hasProdataCredentials } from "./_auth";
 import { createHandler } from "./_lib/http";
 import { prodataFetch } from "./_lib/prodataFetch";
 import { sendProdataError, sendValidationError } from "./_lib/errors";
-import { ensureArray, pickFirstValue, sanitizeDigits, sanitizeString } from "./_lib/sanitize";
+import { ensureArray, pickFirstValue, sanitizeDigits } from "./_lib/sanitize";
 
 const DEBITOS_PATH = process.env.PRODATA_API_DEBITOS_PATH ?? "/arrecadacao/debitos";
 
 const QuerySchema = z
   .object({
-    cpf: z.string().trim().optional(),
-    cnpj: z.string().trim().optional(),
     inscricao: z.string().trim().optional(),
-    inscricaoImobiliaria: z.string().trim().optional(),
     cci: z.string().trim().optional(),
     ccp: z.string().trim().optional()
   })
-  .refine(
-    (value) =>
-      Boolean(
-        value.cpf ||
-          value.cnpj ||
-          value.inscricao ||
-          value.inscricaoImobiliaria ||
-          value.cci ||
-          value.ccp
-      ),
-    { message: "Informe ao menos um identificador: cpf, cnpj, inscricao, cci ou ccp." }
-  );
+  .superRefine((value, ctx) => {
+    const provided = ["inscricao", "cci", "ccp"].filter((key) => {
+      const v = value[key as keyof typeof value];
+      return typeof v === "string" && v.trim().length > 0;
+    });
+
+    if (provided.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe inscricao, CCI ou CCP.",
+        path: []
+      });
+    } else if (provided.length > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe apenas um identificador por vez (inscricao, CCI ou CCP).",
+        path: []
+      });
+    }
+  });
 
 type DebitoItem = {
   id: string;
-  descricao?: string;
-  situacao?: string;
-  vencimento?: string;
-  valorPrincipal?: number;
-  valorAtualizado?: number;
-  selecionavel: boolean;
-  raw: Record<string, unknown>;
+  origem?: string;
+  exercicio?: number;
+  principal: number;
+  multa: number;
+  juros: number;
+  outros: number;
+  total: number;
 };
 
-type DebitoImovel = {
+type DebitosNormalizados = {
   proprietario?: string;
-  documento?: string;
-  inscricao?: string;
-  cci?: string;
-  ccp?: string;
-  endereco?: string;
-  debitos: DebitoItem[];
+  imovel: {
+    inscricao?: string;
+    endereco?: string;
+    cci?: string;
+    ccp?: string;
+    situacao?: string;
+  };
+  itens: DebitoItem[];
   totais: {
-    quantidade: number;
-    valorTotal: number;
+    principal: number;
+    acessorios: number;
+    total: number;
   };
-  raw: Record<string, unknown>;
 };
-
-function normalizeQuery(data: z.infer<typeof QuerySchema>) {
-  const cpfDigits = sanitizeDigits(data.cpf);
-  const cnpjDigits = sanitizeDigits(data.cnpj);
-  const inscricao = sanitizeDigits(data.inscricao ?? data.inscricaoImobiliaria);
-  const cci = sanitizeDigits(data.cci);
-  const ccp = sanitizeDigits(data.ccp);
-
-  return {
-    cpf: cpfDigits && cpfDigits.length >= 11 ? cpfDigits : undefined,
-    cnpj: cnpjDigits && cnpjDigits.length >= 14 ? cnpjDigits : undefined,
-    inscricao: inscricao || undefined,
-    cci: cci || undefined,
-    ccp: ccp || undefined
-  };
-}
-
-function toNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const normalized = value.replace(/\./g, "").replace(",", ".");
-    const parsed = Number.parseFloat(normalized);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-}
 
 const DEBIT_KEYS = [
   "debitos",
@@ -94,8 +75,18 @@ const DEBIT_KEYS = [
   "items"
 ] as const;
 
+function toNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.replace(/\./g, "").replace(",", "."));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
 function extractDebitos(record: Record<string, unknown>, depth = 0): Record<string, unknown>[] {
   if (depth > 4) return [];
+
   for (const key of DEBIT_KEYS) {
     const value = record[key as keyof typeof record];
     if (Array.isArray(value)) {
@@ -109,61 +100,88 @@ function extractDebitos(record: Record<string, unknown>, depth = 0): Record<stri
       if (nested.length) return nested;
     }
   }
+
   return [];
 }
 
-function normalizeDebitos(payload: unknown): DebitoImovel[] {
-  const entries = ensureArray(payload);
+function normalizeItem(item: Record<string, unknown>): DebitoItem {
+  const principal = toNumber(
+    pickFirstValue(item, ["valorPrincipal", "valorOriginal", "valorDebito", "principal"]),
+    0
+  );
+  const multa = toNumber(pickFirstValue(item, ["valorMulta", "multa"]), 0);
+  const juros = toNumber(pickFirstValue(item, ["valorJuros", "juros"]), 0);
+  const correcao = toNumber(pickFirstValue(item, ["valorCorrecao", "correcao", "valorAtualizacao"]), 0);
+  const honorarios = toNumber(pickFirstValue(item, ["valorHonorarios", "honorarios"]), 0);
+  const custas = toNumber(pickFirstValue(item, ["valorCustas", "custas"]), 0);
+  const outrosInformados = toNumber(pickFirstValue(item, ["valorOutros", "outros"]), 0);
 
-  return entries
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-    .map((record) => {
-      const proprietario = pickFirstValue(record, ["nomeProprietario", "nomeContribuinte", "proprietario", "nome"]);
-      const documento =
-        sanitizeDigits(pickFirstValue(record, ["cpf", "cnpj", "cpfCnpj", "documento", "cgc"]) ?? undefined) || undefined;
-      const inscricao = pickFirstValue(record, ["inscricao", "inscricaoImobiliaria", "inscricaoMunicipal"]);
-      const cci = pickFirstValue(record, ["cci", "codigoCci", "numeroCci"]);
-      const ccp = pickFirstValue(record, ["ccp", "codigoCcp", "numeroCcp"]);
-      const logradouro = pickFirstValue(record, ["logradouro", "endereco"]);
-      const bairro = pickFirstValue(record, ["bairro", "setor"]);
-      const debitosRaw = extractDebitos(record);
+  const totalInformado = toNumber(
+    pickFirstValue(item, ["valorTotal", "valorAtualizado", "valorComAcrescimos", "total"]),
+    principal + multa + juros + correcao + honorarios + custas + outrosInformados
+  );
 
-      const debitos = debitosRaw.map((item) => {
-        const identifier =
-          pickFirstValue(item, ["id", "idDebito", "codigo", "numeroDocumento", "numeroTitulo", "idTitulo"]) ?? nanoid(8);
-        return {
-          id: identifier,
-          descricao: pickFirstValue(item, ["descricao", "descricaoDebito", "titulo"]),
-          situacao: pickFirstValue(item, ["situacao", "status", "situacaoTitulo"]),
-          vencimento: pickFirstValue(item, ["vencimento", "dataVencimento", "vencimentoTitulo"]),
-          valorPrincipal: toNumber(
-            pickFirstValue(item, ["valorPrincipal", "valorOriginal", "valorDebito", "valor"])
-          ),
-          valorAtualizado: toNumber(
-            pickFirstValue(item, ["valorAtualizado", "valorComAcrescimos", "valorAtual", "valorTotal"])
-          ),
-          selecionavel: true,
-          raw: item
-        };
-      });
+  const outros = outrosInformados + correcao + honorarios + custas;
+  const total = totalInformado || principal + multa + juros + outros;
+  const acessorios = Math.max(total - principal, multa + juros + outros);
 
-      const total = debitos.reduce((acc, debito) => acc + (debito.valorAtualizado ?? debito.valorPrincipal ?? 0), 0);
+  return {
+    id: pickFirstValue(item, ["id", "idDebito", "codigo", "numeroDocumento", "numeroTitulo"]) ?? nanoid(8),
+    origem: pickFirstValue(item, ["origem", "tipo", "tipoDebito", "natureza"]),
+    exercicio: toNumber(pickFirstValue(item, ["exercicio", "ano", "anoExercicio"]), undefined) || undefined,
+    principal: Number(principal.toFixed(2)),
+    multa: Number(multa.toFixed(2)),
+    juros: Number(juros.toFixed(2)),
+    outros: Number(outros.toFixed(2)),
+    total: Number((principal + acessorios).toFixed(2))
+  };
+}
 
-      return {
-        proprietario: proprietario ?? undefined,
-        documento,
-        inscricao: inscricao ?? undefined,
-        cci: cci ?? undefined,
-        ccp: ccp ?? undefined,
-        endereco: [logradouro, bairro].filter(Boolean).join(" - ") || undefined,
-        debitos,
-        totais: {
-          quantidade: debitos.length,
-          valorTotal: Number(total.toFixed(2))
-        },
-        raw: record
-      };
-    });
+function normalizeDebitos(payload: unknown): DebitosNormalizados {
+  const registros = ensureArray(payload);
+  const registroPrincipal =
+    registros[0] ??
+    (payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {});
+
+  const proprietario = pickFirstValue(registroPrincipal, [
+    "nomeProprietario",
+    "nomeContribuinte",
+    "proprietario",
+    "nome"
+  ]);
+
+  const inscricao = pickFirstValue(registroPrincipal, ["inscricao", "inscricaoImobiliaria", "inscricaoMunicipal"]);
+  const cci = pickFirstValue(registroPrincipal, ["cci", "codigoCci", "numeroCci"]);
+  const ccp = pickFirstValue(registroPrincipal, ["ccp", "codigoCcp", "numeroCcp"]);
+  const logradouro = pickFirstValue(registroPrincipal, ["logradouro", "endereco", "descricaoEndereco"]);
+  const bairro = pickFirstValue(registroPrincipal, ["bairro", "setor"]);
+  const situacao = pickFirstValue(registroPrincipal, ["situacao", "status", "situacaoImovel"]);
+
+  const debitosRaw = extractDebitos(registroPrincipal);
+  const itens = debitosRaw.map(normalizeItem);
+
+  const totalPrincipal = itens.reduce((acc, item) => acc + item.principal, 0);
+  const totalAcessorios = itens.reduce((acc, item) => acc + (item.total - item.principal), 0);
+  const totalGeral = itens.reduce((acc, item) => acc + item.total, 0);
+
+  return {
+    proprietario: proprietario ?? undefined,
+    imovel: {
+      inscricao: inscricao ?? undefined,
+      endereco: [logradouro, bairro].filter(Boolean).join(" - ") || undefined,
+      cci: cci ?? undefined,
+      ccp: ccp ?? undefined,
+      situacao: situacao ?? undefined
+    },
+    itens,
+    totais: {
+      principal: Number(totalPrincipal.toFixed(2)),
+      acessorios: Number(totalAcessorios.toFixed(2)),
+      total: Number(totalGeral.toFixed(2))
+    }
+  };
 }
 
 export default createHandler(
@@ -184,19 +202,17 @@ export default createHandler(
       return;
     }
 
-    const query = normalizeQuery(parsed.data);
-
-    if (!query.cpf && !query.cnpj && !query.inscricao && !query.cci && !query.ccp) {
-      sendValidationError(res, { message: "Parametros insuficientes." }, correlationId);
-      return;
-    }
+    const raw = parsed.data;
+    const normalized = {
+      inscricao: sanitizeDigits(raw.inscricao),
+      cci: sanitizeDigits(raw.cci),
+      ccp: sanitizeDigits(raw.ccp)
+    };
 
     const params = new URLSearchParams();
-    if (query.inscricao) params.set("inscricaoImobiliaria", query.inscricao);
-    if (query.cci) params.set("cci", query.cci);
-    if (query.ccp) params.set("ccp", query.ccp);
-    if (query.cpf) params.set("cpf", query.cpf);
-    if (query.cnpj) params.set("cnpj", query.cnpj);
+    if (normalized.inscricao) params.set("inscricaoImobiliaria", normalized.inscricao);
+    if (normalized.cci) params.set("cci", normalized.cci);
+    if (normalized.ccp) params.set("ccp", normalized.ccp);
 
     const path = `${DEBITOS_PATH}?${params.toString()}`;
 
@@ -212,11 +228,11 @@ export default createHandler(
         return;
       }
 
-      const normalizado = normalizeDebitos(payload);
+      const resultado = normalizeDebitos(payload);
 
       res.status(200).json({
         correlationId,
-        resultados: normalizado,
+        resultado,
         original: payload
       });
     } catch (error) {
@@ -224,3 +240,4 @@ export default createHandler(
     }
   }
 );
+
